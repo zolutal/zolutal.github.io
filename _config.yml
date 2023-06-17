@@ -35,6 +35,8 @@ plugins:
   - jekyll-seo-tag
 #  - jekyll-feed
 
+baseurl: "/"
+
 minima:
   skin: dark
   date_format: "%b %-d, %Y"
