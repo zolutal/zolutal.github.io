@@ -11,7 +11,7 @@ tags:
   - KASLR
 ---
 
-I've recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It's a really cool class of attacks that I hadn't heard of before, but I wasn't having much luck finding any POCs for these attacks... So, I figured I'd write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.
+I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It's a really cool class of attacks that I hadn't heard of before, but I wasn't having much luck finding any POCs for these attacks... So, I figured I'd write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.
 
 *The ability to break KASLR across VMs while also bypassing KPTI using deduplication was discovered by the authors of [3], I will just be exploring the basis for these attacks and writing my own attack based on their research.*
 
