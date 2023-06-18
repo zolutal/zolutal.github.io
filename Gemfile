@@ -11,7 +11,8 @@ gem "jekyll", "~> 4.3.2"
 #gem "github-pages", "~> 228", group: :jekyll_plugins
 # This is the default theme for new Jekyll sites. You may change this to anything you like.
 #gem "minima", "~> 2.5.1"
-gem "minima", git: "https://github.com/jekyll/minima"
+#gem "minima", git: "https://github.com/jekyll/minima"
+gem "minimal-mistakes-jekyll"
 # If you want to use GitHub Pages, remove the "gem "jekyll"" above and
 # uncomment the line below. To upgrade, run `bundle update github-pages`.
 # If you have any plugins, put them here!

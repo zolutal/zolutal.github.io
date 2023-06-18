@@ -1,8 +1,14 @@
 ---
-layout: post
-title:  "Memory Deduplication Attacks"
-date:   2023-06-17 12:00:00 -0700
-categories: posts
+layout: single
+title:  "Understanding Memory Deduplication Attacks"
+date: 2023-06-17
+classes: wide
+tags:
+  - Exploitation
+  - Sidechannels
+  - Linux
+  - KVM
+  - KASLR
 ---
 
 I've recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It's a really cool class of attacks that I hadn't heard of before, but I wasn't having much luck finding any POCs for these attacks... So, I figured I'd write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.
@@ -38,6 +44,8 @@ For reference, this was the default configuration for KSM on my Ubuntu machine:
 As mentioned, when a page is merged it is made copy-on-write (CoW), in short this just means that it's access permissions are set to be not writeable (write-protected) so that a page fault will occur if it is written to. When the kernel sees that a page fault occurred from an attempt to write to a copy-on-write page, it will copy the contents of the page to a newly allocated page and perform the write operation on the new page.
 
 So if we have a page that got deduplicated and we write to it, a page fault will occur. The page fault will have to be handled by the kernel which will have to identify the page fault was a write to a copy-on-write page, allocate a new page, copy the contents of the old page to the new one, and perform the write again all before returning to userspace. That's a whole lot of stuff to do which will take way longer than a non-faulting memory write, meaning we can easily use a timer to record whether or not a write was a faulting one allowing us to detect if deduplication occurred on a given page.
+
+### timing page faults
 
 Then the first step in exploiting deduplication is being able to detect when a page fault ocurrs. A simple way to demonstrate page fault detection is by using memory allocated using mmap. On Linux, the default behavior of mmap is to not immediately allocate the memory that is requested. This is because Linux implements demand paging, so pages aren't allocated memory until they are first accessed. We can see this from the example below.
 
@@ -76,7 +84,11 @@ post-fault: 108 cycles
 
 Notice the first access took way longer, this is because as described previously the page wasn't actually allocated until I attempted to access it. So when I wrote to it by calling poke a page fault occurred resulting in the kernel allocating memory for the page. Now when the second poke is timed the page is already allocated so the access occurs way faster and without a fault.
 
+### timing un-merging
+
 Cool! So now let's try to replicate this with madvise with MADV\_MERGABLE.
+
+Pretty similar same setup besides the madvise and additional writes, just now we let the pages get merged and time the copy-on-write page fault instead of the demand paging page fault.
 
 {% highlight C %}
 ...
