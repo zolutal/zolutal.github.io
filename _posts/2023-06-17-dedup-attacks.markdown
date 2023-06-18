@@ -310,7 +310,7 @@ Cross VM leakage achieved!
 
 ## closing thoughts
 
-Deduplication attacks are pretty cool and fairly simple to pull off, but I also I am slightly concerned that KSM was enabled on my machine without me knowing... not that I was exposing any VMs to the internet anyways but since it was enabled on my machine I worry where else is it might be unknowningly enabled. All I exploited it for in this post was breaking KASLR, but theoretically it could be used to leak the contents of any page from any VM on the system, and research has been done to see just how far it can be pushed[6].
+Deduplication attacks are pretty cool and fairly simple to pull off, but I am slightly concerned that KSM was enabled on my machine without me knowing... not that I was exposing any VMs to the internet anyways but since it was enabled on my machine I worry where else is it might be unknowningly enabled. All I exploited it for in this post was breaking KASLR, but theoretically it could be used to leak the contents of any page from any VM on the system, and research has been done to see just how far it can be pushed[6].
 
 Hope you learned something! This is my first attempt at blogging, it turned out a bit more code dense than I'd have liked, but hopefully the all the code examples made it easier to follow. I do kind of like the format of exploring an attack class and progressively developing an attack of that type, so maybe I'll do it again sometime.
 
