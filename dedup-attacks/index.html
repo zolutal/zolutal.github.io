@@ -1,53 +1,326 @@
-<!DOCTYPE html>
-<html lang="en"><head>
-  <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.8.0 -->
-<title>Memory Deduplication Attacks | zolutal’s blog</title>
-<meta name="generator" content="Jekyll v4.3.2" />
-<meta property="og:title" content="Memory Deduplication Attacks" />
-<meta name="author" content="" />
-<meta property="og:locale" content="en_US" />
-<meta name="description" content="I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs." />
-<meta property="og:description" content="I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs." />
-<meta property="og:site_name" content="zolutal’s blog" />
-<meta property="og:type" content="article" />
-<meta property="article:published_time" content="2023-06-17T19:00:00+00:00" />
-<meta name="twitter:card" content="summary" />
-<meta property="twitter:title" content="Memory Deduplication Attacks" />
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.24.0 by Michael Rose
+  Copyright 2013-2020 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+
+<!-- begin _includes/seo.html --><title>Understanding Memory Deduplication Attacks - zolutal’s blog</title>
+<meta name="description" content="I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.">
+
+
+  <meta name="author" content="Justin Miller">
+  
+  <meta property="article:author" content="Justin Miller">
+  
+
+
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="zolutal's blog">
+<meta property="og:title" content="Understanding Memory Deduplication Attacks">
+<meta property="og:url" content="https://zolutal.github.io/dedup-attacks/">
+
+
+  <meta property="og:description" content="I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.">
+
+
+
+
+
+  <meta name="twitter:site" content="@zolutal">
+  <meta name="twitter:title" content="Understanding Memory Deduplication Attacks">
+  <meta name="twitter:description" content="I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.">
+  <meta name="twitter:url" content="https://zolutal.github.io/dedup-attacks/">
+
+  
+    <meta name="twitter:card" content="summary">
+    
+  
+
+  
+
+
+
+  <meta property="article:published_time" content="2023-06-17T00:00:00+00:00">
+
+
+
+
+
+
+<link rel="canonical" href="https://zolutal.github.io/dedup-attacks/">
+
+
+
+
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"BlogPosting","author":{"@type":"Person","name":""},"dateModified":"2023-06-17T19:00:00+00:00","datePublished":"2023-06-17T19:00:00+00:00","description":"I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.","headline":"Memory Deduplication Attacks","mainEntityOfPage":{"@type":"WebPage","@id":"/posts/2023/06/17/dedup-attacks.html"},"url":"/posts/2023/06/17/dedup-attacks.html"}</script>
-<!-- End Jekyll SEO tag -->
-<link rel="stylesheet" href="/assets/css/style.css"><link type="application/atom+xml" rel="alternate" href="/feed.xml" title="zolutal&apos;s blog" />
-</head>
-<body><header class="site-header">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Person",
+      "name": "Justin Miller",
+      "url": "https://zolutal.github.io/"
+    
+  }
+</script>
 
-  <div class="wrapper"><a class="site-title" rel="author" href="/">zolutal&#39;s blog</a><nav class="site-nav">
-        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
-        <label for="nav-trigger">
-          <span class="menu-icon">
-            <svg viewBox="0 0 18 15" width="18px" height="15px">
-              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
-            </svg>
-          </span>
-        </label>
 
-        <div class="trigger"><a class="page-link" href="/about/">about</a></div>
-      </nav></div>
-</header>
-<main class="page-content" aria-label="Content">
-      <div class="wrapper">
-        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
 
-  <header class="post-header">
-    <h1 class="post-title p-name" itemprop="name headline">Memory Deduplication Attacks</h1>
-    <p class="post-meta"><time class="dt-published" datetime="2023-06-17T19:00:00+00:00" itemprop="datePublished">
-        Jun 17, 2023
-      </time></p>
-  </header>
 
-  <div class="post-content e-content" itemprop="articleBody">
-    <p>I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.</p>
+
+
+
+<!-- end _includes/seo.html -->
+
+
+
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css"></noscript>
+
+
+
+    <!-- start custom head snippets -->
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single wide">
+    <nav class="skip-links">
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+
+    <!--[if lt IE 9]>
+<div class="notice--danger align-center" style="margin: 0;">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience.</div>
+<![endif]-->
+
+    
+
+<div class="masthead">
+  <div class="masthead__inner-wrap">
+    <div class="masthead__menu">
+      <nav id="site-nav" class="greedy-nav">
+        
+        <a class="site-title" href="/">
+          zolutal's blog
+          
+        </a>
+        <ul class="visible-links"><li class="masthead__menu-item">
+              <a href="/about">about</a>
+            </li></ul>
+        
+        <button class="greedy-nav__toggle hidden" type="button">
+          <span class="visually-hidden">Toggle menu</span>
+          <div class="navicon"></div>
+        </button>
+        <ul class="hidden-links hidden"></ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+
+    <div class="initial-content">
+      
+
+
+  
+    
+
+
+
+<nav class="breadcrumbs">
+  <ol itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    
+    
+      
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a href="https://zolutal.github.io/" itemprop="item"><span itemprop="name">Home</span></a>
+          <meta itemprop="position" content="1" />
+        </li>
+        <span class="sep">/</span>
+      
+      
+        <li class="current">Understanding Memory Deduplication Attacks</li>
+      
+    
+  </ol>
+</nav>
+
+  
+
+
+<div id="main" role="main">
+  
+  <div class="sidebar sticky">
+  
+
+
+<div itemscope itemtype="https://schema.org/Person">
+
+  
+
+  <div class="author__content">
+    
+      <h3 class="author__name" itemprop="name">Justin Miller</h3>
+    
+    
+      <div class="author__bio" itemprop="description">
+        <p>systems hacking</p>
+
+      </div>
+    
+  </div>
+
+  <div class="author__urls-wrapper">
+    <button class="btn btn--inverse">Follow</button>
+    <ul class="author__urls social-icons">
+      
+        <li itemprop="homeLocation" itemscope itemtype="https://schema.org/Place">
+          <i class="fas fa-fw fa-map-marker-alt" aria-hidden="true"></i> <span itemprop="name">Arizona</span>
+        </li>
+      
+
+      
+        
+          
+        
+          
+        
+          
+            <li><a href="https://twitter.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i><span class="label">Twitter</span></a></li>
+          
+        
+          
+            <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i><span class="label">GitHub</span></a></li>
+          
+        
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      <!--
+  <li>
+    <a href="http://link-to-whatever-social-network.com/user/" itemprop="sameAs" rel="nofollow noopener noreferrer">
+      <i class="fas fa-fw" aria-hidden="true"></i> Custom Social Profile Link
+    </a>
+  </li>
+-->
+    </ul>
+  </div>
+</div>
+
+  
+  </div>
+
+
+
+  <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
+    <meta itemprop="headline" content="Understanding Memory Deduplication Attacks">
+    <meta itemprop="description" content="I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.">
+    <meta itemprop="datePublished" content="2023-06-17T00:00:00+00:00">
+    
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          <h1 id="page-title" class="page__title" itemprop="headline">Understanding Memory Deduplication Attacks
+</h1>
+          
+
+  <p class="page__meta">
+    
+
+    
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          13 minute read
+        
+      </span>
+    
+  </p>
+
+
+        </header>
+      
+
+      <section class="page__content" itemprop="text">
+        
+        <p>I’ve recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.</p>
 
 <p><em>The ability to break KASLR across VMs while also bypassing KPTI using deduplication was discovered by the authors of [3], I will just be exploring the basis for these attacks and writing my own attack based on their research.</em></p>
 
@@ -79,6 +352,8 @@
 <p>As mentioned, when a page is merged it is made copy-on-write (CoW), in short this just means that it’s access permissions are set to be not writeable (write-protected) so that a page fault will occur if it is written to. When the kernel sees that a page fault occurred from an attempt to write to a copy-on-write page, it will copy the contents of the page to a newly allocated page and perform the write operation on the new page.</p>
 
 <p>So if we have a page that got deduplicated and we write to it, a page fault will occur. The page fault will have to be handled by the kernel which will have to identify the page fault was a write to a copy-on-write page, allocate a new page, copy the contents of the old page to the new one, and perform the write again all before returning to userspace. That’s a whole lot of stuff to do which will take way longer than a non-faulting memory write, meaning we can easily use a timer to record whether or not a write was a faulting one allowing us to detect if deduplication occurred on a given page.</p>
+
+<h3 id="timing-page-faults">timing page faults</h3>
 
 <p>Then the first step in exploiting deduplication is being able to detect when a page fault ocurrs. A simple way to demonstrate page fault detection is by using memory allocated using mmap. On Linux, the default behavior of mmap is to not immediately allocate the memory that is requested. This is because Linux implements demand paging, so pages aren’t allocated memory until they are first accessed. We can see this from the example below.</p>
 
@@ -114,7 +389,11 @@ post-fault: 108 cycles
 
 <p>Notice the first access took way longer, this is because as described previously the page wasn’t actually allocated until I attempted to access it. So when I wrote to it by calling poke a page fault occurred resulting in the kernel allocating memory for the page. Now when the second poke is timed the page is already allocated so the access occurs way faster and without a fault.</p>
 
+<h3 id="timing-un-merging">timing un-merging</h3>
+
 <p>Cool! So now let’s try to replicate this with madvise with MADV_MERGABLE.</p>
+
+<p>Pretty similar same setup besides the madvise and additional writes, just now we let the pages get merged and time the copy-on-write page fault instead of the demand paging page fault.</p>
 
 <figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="p">...</span>
 <span class="c1">// read a byte from addr</span>
@@ -351,63 +630,120 @@ kernel base = 0xffffffffb4400000
 
 <p>[7] <a href="https://lwn.net/Articles/306704/">lwn: /dev/ksm: dynamic memory sharing</a></p>
 
-  </div><a class="u-url" href="/posts/2023/06/17/dedup-attacks.html" hidden></a>
-</article>
+        
+      </section>
 
-      </div>
-    </main><footer class="site-footer h-card">
-  <data class="u-url" href="/"></data>
+      <footer class="page__meta">
+        
+        
+  
 
-  <div class="wrapper">
 
-    <div class="footer-col-wrapper">
-      <!--
-      <div class="footer-col">
-        <p class="feed-subscribe">
-          <a href="/feed.xml">
-            <svg class="svg-icon orange">
-              <use xlink:href="/assets/minima-social-icons.svg#rss"></use>
-            </svg><span>Subscribe</span>
-          </a>
-        </p>
-        <ul class="contact-list">
-          <li class="p-name"></li>
-          <li><a class="u-email" href="mailto:"></a></li>
-        </ul>
-      </div>
-      -->
-      <div class="footer-col">
-        <p></p>
-      </div>
+  
+
+  <p class="page__taxonomy">
+    <strong><i class="fas fa-fw fa-tags" aria-hidden="true"></i> Tags: </strong>
+    <span itemprop="keywords">
+    
+      <a href="/tags/#exploitation" class="page__taxonomy-item" rel="tag">Exploitation</a><span class="sep">, </span>
+    
+      <a href="/tags/#kaslr" class="page__taxonomy-item" rel="tag">KASLR</a><span class="sep">, </span>
+    
+      <a href="/tags/#kvm" class="page__taxonomy-item" rel="tag">KVM</a><span class="sep">, </span>
+    
+      <a href="/tags/#linux" class="page__taxonomy-item" rel="tag">Linux</a><span class="sep">, </span>
+    
+      <a href="/tags/#sidechannels" class="page__taxonomy-item" rel="tag">Sidechannels</a>
+    
+    </span>
+  </p>
+
+
+
+
+        
+
+  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2023-06-17T00:00:00+00:00">June 17, 2023</time></p>
+
+
+      </footer>
+
+      
+
+      
     </div>
 
-    <div class="social-links"><ul class="social-media-list"><li>
-  <a rel="me" href="https://github.com/zolutal" target="_blank" title="github">
-    <svg class="svg-icon grey">
-      <use xlink:href="/assets/minima-social-icons.svg#github"></use>
-    </svg>
-  </a>
-</li>
-<li>
-  <a rel="me" href="https://twitter.com/zolutal" target="_blank" title="twitter">
-    <svg class="svg-icon grey">
-      <use xlink:href="/assets/minima-social-icons.svg#twitter"></use>
-    </svg>
-  </a>
-</li>
-<li>
-  <a rel="me" href="https://infosec.exchange/@zolutal" target="_blank" title="mastodon">
-    <svg class="svg-icon grey">
-      <use xlink:href="/assets/minima-social-icons.svg#mastodon"></use>
-    </svg>
-  </a>
-</li>
-</ul>
+    
+  </article>
+
+  
+  
+    <div class="page__related">
+      <h4 class="page__related-title">You may also enjoy</h4>
+      <div class="grid__wrapper">
+        
+          
+            
+      </div>
+    </div>
+  
 </div>
 
-  </div>
+    </div>
 
-</footer>
-</body>
+    
 
+    <div id="footer" class="page__footer">
+      <footer>
+        <!-- start custom footer snippets -->
+
+<!-- end custom footer snippets -->
+        <div class="page__footer-follow">
+  <ul class="social-icons">
+    
+      <li><strong>Follow:</strong></li>
+    
+
+    
+      
+        
+          <li><a href="https://twitter.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i> Twitter</a></li>
+        
+      
+        
+      
+        
+          <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i> GitHub</a></li>
+        
+      
+        
+      
+        
+      
+        
+      
+    
+
+    
+  </ul>
+</div>
+
+<div class="page__footer-copyright">&copy; 2023 Justin Miller. Powered by <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://mademistakes.com/work/minimal-mistakes-jekyll-theme/" rel="nofollow">Minimal Mistakes</a>.</div>
+
+      </footer>
+    </div>
+
+    
+  <script src="/assets/js/main.min.js"></script>
+
+
+
+
+
+
+
+
+
+
+  </body>
 </html>
