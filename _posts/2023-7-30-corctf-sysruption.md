@@ -586,7 +586,7 @@ gef➤  p/x (void*)&modprobe_path - (void*)&init_ucounts
 $17 = 0x180
 ```
 
-So I figured what I could just use more corruption by triggering the sysret bug again to uncorrupt `init_ucounts`.
+So I figured what if I could just use more corruption by triggering the sysret bug again to uncorrupt `init_ucounts`.
 
 ```
 gef> x/20gx &init_ucounts
