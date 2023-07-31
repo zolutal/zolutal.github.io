@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2023-07-31T08:05:23+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF: sysruption writeup</title><link href="https://zolutal.github.io/corctf-sysruption/" rel="alternate" type="text/html" title="corCTF: sysruption writeup" /><published>2023-07-30T00:00:00+00:00</published><updated>2023-07-30T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-sysruption</id><content type="html" xml:base="https://zolutal.github.io/corctf-sysruption/"><![CDATA[<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2023-07-31T20:51:43+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF 2023: sysruption writeup</title><link href="https://zolutal.github.io/corctf-sysruption/" rel="alternate" type="text/html" title="corCTF 2023: sysruption writeup" /><published>2023-07-30T00:00:00+00:00</published><updated>2023-07-30T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-sysruption</id><content type="html" xml:base="https://zolutal.github.io/corctf-sysruption/"><![CDATA[<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
 
 <p style="text-align: center;"><img src="/assets/corctf-sysruption/first-blood.png" alt="first-blood" /></p>
 
@@ -111,13 +111,13 @@
 <span class="p">...</span>                                         <span class="o">|</span>
 </code></pre></div></div>
 
-<p>The important part here is that the canonicality check on Intel occurs BEFORE the CS selector is set, whereas on AMD there is no builtin canonicality check in the instruction but it will be checked after the CS selector is set when the cpu attempts to fetch the next instruction. The CS selector determines the current privilege level (CPL), CPL 0 is kernel mode and CPL 3 is user mode.</p>
+<p>The important part here is that the canonicality check on Intel occurs BEFORE the CS selector is set, whereas on AMD there is no builtin canonicality check in the instruction but it will be checked AFTER the CS selector is set when the cpu attempts to fetch the next instruction. The CS selector determines the current privilege level (CPL), CPL 0 is kernel mode and CPL 3 is user mode.</p>
 
 <p>So on Intel CPUs when sysret is executed with a non-canonical instruction pointer a General Protection (GP) fault will be raised in kernel mode!</p>
 
 <p>But on AMD CPUs when sysret is executed with a non-canonical instruction pointer a GP will occur on instruction fetch in user mode.</p>
 
-<p>But why does this distinction matter? well, the issue is in how faults from different privilege levels are handled. On x86 when a fault occurs in CPL 3 the stack pointer will be set to a value defined in the TSS (RPS0):</p>
+<p>But why does this distinction matter? well, the issue is in how faults from different privilege levels are handled. On x86 when a fault occurs in CPL 3 the stack pointer will be set to a value defined in the TSS depending on what Desired Privilege Level (DPL) is defined for that fault in the Interrupt Descriptor Table (IDT):</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Although hardware task-switching is not supported in 64-bit mode, a 64-bit task state segment (TSS) must exist.
 Figure 8-11 shows the format of a 64-bit TSS. The TSS holds information important to 64-bit mode and that is not
@@ -129,7 +129,7 @@ directly related to the task-switch mechanism. This information includes:
 
 <p class="caption">Intel SDM Volume 3 Ch. 8 Section 7: Task Management in 64-Bit Mode</p>
 
-<p>But these stacks are only used when changing from a lower CPL to a higher CPL, if a fault occurs in a CPL greater than or equal to the the desired privilege level (DPL) for that fault (specified in the the IDT entry), the current stack is used.</p>
+<p>But these stacks are only used when changing from a lower CPL to a higher CPL, if a fault occurs in a CPL greater than or equal to the the desired privilege level DPL for that fault, the current stack is used.</p>
 
 <p>This becomes a problem on Intel CPUs because the the GP occurs at CPL 0 and the IDT descriptor for GP has DPL 0 so no privilege level change occurs, meaning instead of moving to the RSP0 stack pointer from the TSS, as would happen with a fault from user space, the fault will behave as a fault from kernel space and use the current (user controlled) stack pointer. So with a non-canonical instruction pointer the stack location when entering the GP fault handler will be a user controlled address.</p>
 
@@ -197,7 +197,7 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>Triggering the bug with a target kernel address in rsp was failing because of a double fault caused by the GP handler unexpectedly executing with user space’s gsbase.</p>
 
-<p>The gsbase register is used on Linux to access percpu variables. In the Linux source code it is equivalent to the <code class="language-plaintext highlighter-rouge">current</code> macro. On kernel entry and exit the <code class="language-plaintext highlighter-rouge">swapgs</code> instruction is executed to switch back and forth between the kernel and user gsbase values since user space is allowed to use a gs segment as well.</p>
+<p>The gsbase register is used on Linux to access percpu variables. In the Linux source code it is used by the <code class="language-plaintext highlighter-rouge">current</code> macro to locate the current task struct, for example. On kernel entry and exit the <code class="language-plaintext highlighter-rouge">swapgs</code> instruction is executed to switch back and forth between the kernel and user gsbase values since user space is allowed to use a gs segment as well.</p>
 
 <p>e.g. in <code class="language-plaintext highlighter-rouge">entry_SYSCALL_64</code>:</p>
 
@@ -273,9 +273,9 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>So how can we survive this?</p>
 
-<p>In the ptrace sysret blog, the author survives the double fault by targeting the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don’t have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.</p>
+<p>In the ptrace sysret blog, the author survives the double fault by targeting the IDT in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don’t have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.</p>
 
-<p>Well the gsbase belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?</p>
+<p>Well the gsbase causing the fault belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?</p>
 
 <p>My first attempt was to have ptrace set gsbase since I was already using ptrace to set the registers, but as it turns out <a href="https://elixir.bootlin.com/linux/v6.3.4/source/arch/x86/kernel/ptrace.c#L395">ptrace will not set gsbase if the address is greater than TASK_SIZE_MAX</a> (greater than the max user space address).</p>
 
