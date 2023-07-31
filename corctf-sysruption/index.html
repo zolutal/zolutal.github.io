@@ -874,7 +874,7 @@ gef➤  x/s &amp;modprobe_path
 $17 = 0x180
 </code></pre></div></div>
 
-<p>So I figured what I could just use more corruption by triggering the sysret bug again to uncorrupt <code class="language-plaintext highlighter-rouge">init_ucounts</code>.</p>
+<p>So I figured what if I could just use more corruption by triggering the sysret bug again to uncorrupt <code class="language-plaintext highlighter-rouge">init_ucounts</code>.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; x/20gx &amp;init_ucounts
 0xffffffff8203b6c0 &lt;init_ucounts&gt;:      0xffff888100049600	0xffffffff82640160
