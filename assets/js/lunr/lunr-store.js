@@ -7,7 +7,7 @@ var store = [{
       },{
         "title": "corCTF: sysruption writeup",
         "excerpt":"I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on! As described by the challenge text, sysruption is about: A hardware quirk, a micro-architecture attack, and a kernel...","categories": [],
-        "tags": ["Exploitation","Sidechannels","Linux","CTF"],
+        "tags": ["Exploitation","Sidechannels","Linux","CTF Writeup"],
         "url": "/corctf-sysruption/",
         "teaser": null
       }]

