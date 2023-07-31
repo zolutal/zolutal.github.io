@@ -1,6 +1,6 @@
 ---
 layout: single
-title:  "corCTF: sysruption writeup"
+title:  "corCTF 2023: sysruption writeup"
 date: 2023-07-30
 classes: wide
 tags:
@@ -128,13 +128,13 @@ CS.Selector := CS.Selector OR 3;            | EXIT
 ...                                         |
 ```
 
-The important part here is that the canonicality check on Intel occurs BEFORE the CS selector is set, whereas on AMD there is no builtin canonicality check in the instruction but it will be checked after the CS selector is set when the cpu attempts to fetch the next instruction. The CS selector determines the current privilege level (CPL), CPL 0 is kernel mode and CPL 3 is user mode.
+The important part here is that the canonicality check on Intel occurs BEFORE the CS selector is set, whereas on AMD there is no builtin canonicality check in the instruction but it will be checked AFTER the CS selector is set when the cpu attempts to fetch the next instruction. The CS selector determines the current privilege level (CPL), CPL 0 is kernel mode and CPL 3 is user mode.
 
 So on Intel CPUs when sysret is executed with a non-canonical instruction pointer a General Protection (GP) fault will be raised in kernel mode!
 
 But on AMD CPUs when sysret is executed with a non-canonical instruction pointer a GP will occur on instruction fetch in user mode.
 
-But why does this distinction matter? well, the issue is in how faults from different privilege levels are handled. On x86 when a fault occurs in CPL 3 the stack pointer will be set to a value defined in the TSS (RPS0):
+But why does this distinction matter? well, the issue is in how faults from different privilege levels are handled. On x86 when a fault occurs in CPL 3 the stack pointer will be set to a value defined in the TSS depending on what Desired Privilege Level (DPL) is defined for that fault in the Interrupt Descriptor Table (IDT):
 
 ```
 Although hardware task-switching is not supported in 64-bit mode, a 64-bit task state segment (TSS) must exist.
@@ -148,7 +148,7 @@ directly related to the task-switch mechanism. This information includes:
 {:.caption}
 Intel SDM Volume 3 Ch. 8 Section 7: Task Management in 64-Bit Mode
 
-But these stacks are only used when changing from a lower CPL to a higher CPL, if a fault occurs in a CPL greater than or equal to the the desired privilege level (DPL) for that fault (specified in the the IDT entry), the current stack is used.
+But these stacks are only used when changing from a lower CPL to a higher CPL, if a fault occurs in a CPL greater than or equal to the the desired privilege level DPL for that fault, the current stack is used.
 
 This becomes a problem on Intel CPUs because the the GP occurs at CPL 0 and the IDT descriptor for GP has DPL 0 so no privilege level change occurs, meaning instead of moving to the RSP0 stack pointer from the TSS, as would happen with a fault from user space, the fault will behave as a fault from kernel space and use the current (user controlled) stack pointer. So with a non-canonical instruction pointer the stack location when entering the GP fault handler will be a user controlled address.
 
@@ -217,7 +217,7 @@ The whole point of triggering this bug is to cause memory corruption through the
 
 Triggering the bug with a target kernel address in rsp was failing because of a double fault caused by the GP handler unexpectedly executing with user space's gsbase.
 
-The gsbase register is used on Linux to access percpu variables. In the Linux source code it is equivalent to the `current` macro. On kernel entry and exit the `swapgs` instruction is executed to switch back and forth between the kernel and user gsbase values since user space is allowed to use a gs segment as well.
+The gsbase register is used on Linux to access percpu variables. In the Linux source code it is used by the `current` macro to locate the current task struct, for example. On kernel entry and exit the `swapgs` instruction is executed to switch back and forth between the kernel and user gsbase values since user space is allowed to use a gs segment as well.
 
 e.g. in `entry_SYSCALL_64`:
 
@@ -298,9 +298,9 @@ exc_general_protection:
 
 So how can we survive this?
 
-In the ptrace sysret blog, the author survives the double fault by targeting the Interrupt Descriptor Table (IDT) in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don't have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.
+In the ptrace sysret blog, the author survives the double fault by targeting the IDT in order to hijack the page fault handler to userspace. Unfortunately, we are living in the future meaning we don't have a writeable IDT and SMEP would anyways prevent us from executing off a user space page. So I had to find some other way to survive triggering the bug.
 
-Well the gsbase belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?
+Well the gsbase causing the fault belongs to userspace, but can we control our own gsbase? can we make it point to a kernel address?
 
 My first attempt was to have ptrace set gsbase since I was already using ptrace to set the registers, but as it turns out [ptrace will not set gsbase if the address is greater than TASK_SIZE_MAX](https://elixir.bootlin.com/linux/v6.3.4/source/arch/x86/kernel/ptrace.c#L395) (greater than the max user space address).
 
