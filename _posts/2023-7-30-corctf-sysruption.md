@@ -322,7 +322,7 @@ So if I just use this instruction to modify user space gsbase in the process tri
 
 Except... not quite. I first tried setting it to a random read/write kernel address and that got me a little further, but the percpu data contains pointers that the kernel will try to dereference which just becomes double faulting again.
 
-So setting it to some random address wasn't going to cut it, I figured the most stable option would be to just user space gsbase to kernel gsbase so that when the vulnerability triggered the kernel would be running with the gsbase it expected.
+So setting it to some random address wasn't going to cut it, I figured the most stable option would be to just set user space gsbase to kernel gsbase so that when the vulnerability triggered the kernel would be running with the gsbase it expected.
 
 One small problem, kernel gsbase is in physmap... how am I supposed to know where that is? and while I'm at it how am I supposed to know where the kernel itself is? I had been debugging with KASLR disabled, but for remote I'll need leaks somehow...
 
@@ -358,7 +358,6 @@ But that was simple enough, all I had to do was define some ranges and step size
 #define DUMMY_ITERATIONS 5
 #define ITERATIONS 100
 
-// https://www.willsroot.io/2022/12/entrybleed.html
 uint64_t sidechannel(uint64_t addr) {
   uint64_t a, b, c, d;
   asm volatile (".intel_syntax noprefix;"
