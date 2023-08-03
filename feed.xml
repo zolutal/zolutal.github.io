@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2023-07-31T20:51:43+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF 2023: sysruption writeup</title><link href="https://zolutal.github.io/corctf-sysruption/" rel="alternate" type="text/html" title="corCTF 2023: sysruption writeup" /><published>2023-07-30T00:00:00+00:00</published><updated>2023-07-30T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-sysruption</id><content type="html" xml:base="https://zolutal.github.io/corctf-sysruption/"><![CDATA[<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2023-08-03T03:14:18+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF 2023: sysruption writeup</title><link href="https://zolutal.github.io/corctf-sysruption/" rel="alternate" type="text/html" title="corCTF 2023: sysruption writeup" /><published>2023-07-30T00:00:00+00:00</published><updated>2023-07-30T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-sysruption</id><content type="html" xml:base="https://zolutal.github.io/corctf-sysruption/"><![CDATA[<p>I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed to get first-blood on!</p>
 
 <p style="text-align: center;"><img src="/assets/corctf-sysruption/first-blood.png" alt="first-blood" /></p>
 
@@ -296,7 +296,7 @@ directly related to the task-switch mechanism. This information includes:
 
 <p>Except… not quite. I first tried setting it to a random read/write kernel address and that got me a little further, but the percpu data contains pointers that the kernel will try to dereference which just becomes double faulting again.</p>
 
-<p>So setting it to some random address wasn’t going to cut it, I figured the most stable option would be to just user space gsbase to kernel gsbase so that when the vulnerability triggered the kernel would be running with the gsbase it expected.</p>
+<p>So setting it to some random address wasn’t going to cut it, I figured the most stable option would be to just set user space gsbase to kernel gsbase so that when the vulnerability triggered the kernel would be running with the gsbase it expected.</p>
 
 <p>One small problem, kernel gsbase is in physmap… how am I supposed to know where that is? and while I’m at it how am I supposed to know where the kernel itself is? I had been debugging with KASLR disabled, but for remote I’ll need leaks somehow…</p>
 
@@ -331,7 +331,6 @@ directly related to the task-switch mechanism. This information includes:
 <span class="cp">#define DUMMY_ITERATIONS 5
 #define ITERATIONS 100
 </span>
-<span class="c1">// https://www.willsroot.io/2022/12/entrybleed.html</span>
 <span class="kt">uint64_t</span> <span class="nf">sidechannel</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="n">addr</span><span class="p">)</span> <span class="p">{</span>
   <span class="kt">uint64_t</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">;</span>
   <span class="n">asm</span> <span class="k">volatile</span> <span class="p">(</span><span class="s">".intel_syntax noprefix;"</span>
