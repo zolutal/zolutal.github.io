@@ -10,4 +10,10 @@ var store = [{
         "tags": ["Exploitation","Sidechannels","Linux","CTF Writeup"],
         "url": "/corctf-sysruption/",
         "teaser": null
+      },{
+        "title": "Understanding x86_64 Paging",
+        "excerpt":"I’ve spent quite a lot of time messing with x86_64 page tables, understanding address translation is not easy and when I started learning about it I felt like a lot of the material out there on how it works was hard for me to wrap my head around. So in...","categories": [],
+        "tags": ["x86_64","Linux","Architecture"],
+        "url": "/understanding-paging/",
+        "teaser": null
       }]
