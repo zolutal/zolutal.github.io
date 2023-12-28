@@ -231,7 +231,7 @@ XXXX XXXX XXXX 0XXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX 0XXX XXXX
        56        48        40        32        24        16         8         0
 ```
 
-As you can see the diagram below for the PUD is very similar to the one for the PGD, the only difference is the introduction of the 'Page Size' bit. The Page Size bit being set changes how we need to interpret a PUD entry quite a lot. For this diagram we are assuming it is unset, which is the most common case.
+As you can see the diagram above for the PUD is very similar to the one for the PGD, the only difference is the introduction of the 'Page Size' bit. The Page Size bit being set changes how we need to interpret a PUD entry quite a lot. For this diagram we are assuming it is unset, which is the most common case.
 
 
 ### PMD
