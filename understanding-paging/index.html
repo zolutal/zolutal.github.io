@@ -708,7 +708,7 @@ $43 = 0x10d664000
 
 <div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">get_virt_indicies</span><span class="p">(</span><span class="n">addr</span><span class="p">):</span>
     <span class="n">pageshift</span> <span class="o">=</span> <span class="mi">12</span>
-    <span class="n">addr</span> <span class="o">=</span> <span class="n">addr</span> <span class="o">&gt;&gt;</span> <span class="n">PAGESHIFT</span>
+    <span class="n">addr</span> <span class="o">=</span> <span class="n">addr</span> <span class="o">&gt;&gt;</span> <span class="n">pageshift</span>
     <span class="n">pt</span><span class="p">,</span> <span class="n">pmd</span><span class="p">,</span> <span class="n">pud</span><span class="p">,</span> <span class="n">pgd</span> <span class="o">=</span> <span class="p">(((</span><span class="n">addr</span> <span class="o">&gt;&gt;</span> <span class="p">(</span><span class="n">i</span><span class="o">*</span><span class="mi">9</span><span class="p">))</span> <span class="o">&amp;</span> <span class="mh">0x1ff</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nf">range</span><span class="p">(</span><span class="mi">4</span><span class="p">))</span>
     <span class="k">return</span> <span class="n">pgd</span><span class="p">,</span> <span class="n">pud</span><span class="p">,</span> <span class="n">pmd</span><span class="p">,</span> <span class="n">pt</span>
 </code></pre></div></div>
@@ -807,7 +807,7 @@ $52 = 0x8c34230
 $53 = 0x80
 </code></pre></div></div>
 
-<p>Looks like our virtual address refers to a 2MB Huge Page! so the physical address of this PMD entry is the physical address of that Huge Page.</p>
+<p>Looks like our virtual address refers to a 2MB Huge Page! so the physical address in this PMD entry is the physical address of that Huge Page.</p>
 
 <p>Also, looking at the permission bits, looks like the page is still present and writeable and the user bit is still unset, so this page is only accessible from supervisor mode (ring-0).</p>
 
