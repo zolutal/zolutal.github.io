@@ -398,7 +398,7 @@ I'll use this little python function to extract the page table offsets from the 
 ```python
 def get_virt_indicies(addr):
     pageshift = 12
-    addr = addr >> PAGESHIFT
+    addr = addr >> pageshift
     pt, pmd, pud, pgd = (((addr >> (i*9)) & 0x1ff) for i in range(4))
     return pgd, pud, pmd, pt
 ```
@@ -511,7 +511,7 @@ gef➤  p/x 0x8000000008c001e3 & (1<<7)
 $53 = 0x80
 ```
 
-Looks like our virtual address refers to a 2MB Huge Page! so the physical address of this PMD entry is the physical address of that Huge Page.
+Looks like our virtual address refers to a 2MB Huge Page! so the physical address in this PMD entry is the physical address of that Huge Page.
 
 Also, looking at the permission bits, looks like the page is still present and writeable and the user bit is still unset, so this page is only accessible from supervisor mode (ring-0).
 
