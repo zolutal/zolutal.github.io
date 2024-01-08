@@ -1,0 +1,215 @@
+---
+layout: single
+title: "ASLRn't: How memory alignment broke library ASLR"
+date: 2024-01-08
+classes: wide
+tags:
+  - Linux
+  - ASLR
+  - x86_64
+---
+
+Reading the title of this blog, you may be rightfully skeptical, something "broke library ASLR"??? uhuh, sure.
+
+But there is no bait here, well ok, maybe 32-bit ASLR is a little bit of a bait...
+
+As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro's releases, with kernel versions >=5.18, library ASLR is *literally* broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR's entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -> 19 bits, on certain filesystems.
+
+Then what are these "certain filesystems"? Those would be: ext4, ext2, btrfs, xfs, and fuse. So, some of the most widely used filesystems.
+
+I've only actually verified ext4 and btrfs, though, according to the kernel source code the other filesystems [*should* be affected](https://elixir.bootlin.com/linux/v6.7/C/ident/thp_get_unmapped_area), but please let me know if I am wrong on any of these being affected. I've reproduced the 64-bit regression on Ubuntu w/ ext4, Arch w/ ext4, and Fedora w/ btrfs. I've also reproduced the 32-bit regression on those Ubuntu, Arch, and Fedora systems.
+
+## being responsible
+
+I contacted Ubuntu security about this (I initially assumed only they were affected) and they informed me that this regression is being tracked by them publicly here:
+
+[https://bugs.launchpad.net/ubuntu-kernel-tests/+bug/1983357](https://bugs.launchpad.net/ubuntu-kernel-tests/+bug/1983357)
+
+Though I independently discovered that 64-bit library ASLR had regressed, the bug has been publicly tracked by Ubuntu for quite some time before I found it. The impact of this regression on 32-bit library ASLR was not found by me at all, I learned about it from the bug report above. Props to Ubuntu for having a regression test for this kind of thing!
+
+But, despite this issue being public for over a year on Ubuntu's bug tracker, it seems like it has gone mostly unnoticed? I have only found it referenced on that Ubuntu bug tracker and [here](https://groups.google.com/g/linux.debian.bugs.dist/c/t6RJSUQ6gp4) on the debian bugs newsgroup.
+
+# The 64-bit regression
+
+For the regression to occur, the prerequisites must be met: an affected filesystem, a recent-ish kernel (past ~year or so), and a library that is >=2MB (this size may need to be larger depending on how the loader is implemented)
+
+In my case all of these were met by default on my Ubuntu 22.04 system which has an ext4 filesystem, a 6.2.0 kernel, and a 2.2MB libc.
+
+With those requirements met, testing for the regression is pretty simple:
+
+```bash
+┌──(jmill@ubun)-[~]
+└─$ cat /proc/self/maps | grep libc | head -n 1
+7ff67dc00000-7ff67dc28000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+
+┌──(jmill@ubun)-[~]
+└─$ cat /proc/self/maps | grep libc | head -n 1
+7f0c33600000-7f0c33628000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+
+┌──(jmill@ubun)-[~]
+└─$ cat /proc/self/maps | grep libc | head -n 1
+7fc6ef800000-7fc6ef828000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+```
+
+Boom! ASLR is messed up, see!?!?
+
+Okay, but more seriously, lets break down what is going on there.
+
+Here we have an address range representing the location of libc in the `cat` process's address space:
+
+```
+7ff67dc00000-7ff67dc28000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+```
+
+The first value on that line `7fcc68000000` is the 'base address' of libc for that run of `cat`. The base address is randomly chosen by the kernel when the library is mapped in, and everything in libc is a constant offset from that (code, globals, etc...). So for library ASLR to be regressed that would mean that that base address is less random than it should be.
+
+I've claimed the regression affects ASLR of libraries >=2MB in size, so let's compare this allegedly malfunctioning libc ASLR to the ASLR of some smaller library memory mapping.
+
+Here is a little python snippet to run `cat /proc/self/maps` 1000 times and do a bitwise OR on the libc base addresses we receive. With this, if a bit in the base address is set in any of those 1000 runs we would see it in the result.
+
+```python
+In [1]: from subprocess import check_output
+   ...: result = 0x0
+   ...: for _ in range(0,1000):
+   ...:     out = check_output("cat /proc/self/maps | grep libc | head -n1", shell=True).decode()
+   ...:     base_address = int(out.split('-')[0], 16)
+   ...:     result |= base_address
+   ...: hex(result)
+Out[1]: '0x7fffffe00000'
+```
+
+Alright, so for 1000 OR'd libc base addresses `0x7fffffe00000` is the combined value we get, meaning the last five nibbles + 1 bit (21 bits) were zero on all of those 1000 runs. So those low 21 bits must not be part of the randomization on the mapping, since they aren't changing.
+
+Let's run it again but instead of grepping for the base address of libc, let's do it for `ld` which is signifcantly smaller than 2MB (236KB)
+
+```python
+In [2]: from subprocess import check_output
+   ...: result = 0x0
+   ...: for _ in range(0,1000):
+   ...:     out = check_output("cat /proc/self/maps | grep ld | head -n1", shell=True).decode()
+   ...:     base_address = int(out.split('-')[0], 16)
+   ...:     result |= base_address
+   ...: hex(result)
+Out[2]: '0x7ffffffff000'
+```
+
+Okay, so that is clearly different... libc's base address had 21 bits of trailing zeros but ld's base address has 12 bits of trailing zeros.
+
+What we are observing here is that ld's base address has 9 more bits of randomization than libc's base address and this wasn't the case in the past (both because libc was <2MB and because the change that causes this wasn't implemented yet)
+
+So libc lost 9 bits of its randomization, to... something? for being >=2MB?
+
+# The 32-bit breakage
+
+So I claimed 32-bit is straight up broken, let's see it.
+
+To observe the breakage you'll of course need a 32-bit binary, I compiled this `cat` clone (credit: ChatGPT lol) as a 32-bit binary:
+
+```c
+// gcc -m32 cat32.c -o cat32
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+
+int main(int argc, char *argv[]) {
+    FILE *file;
+    int c;
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <filename>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    file = fopen(argv[1], "r");
+    if (file == NULL) {
+        perror("Error opening file");
+        return EXIT_FAILURE;
+    }
+
+    while ((c = fgetc(file)) != EOF) {
+        putchar(c);
+    }
+
+    fclose(file);
+
+    return EXIT_SUCCESS;
+}
+```
+
+Okay so let's do the same thing as we did for testing the 64-bit regression, just cat out `/proc/self/maps` but with our 32-bit cat:
+
+```bash
+┌──(jmill@ubun)-[~/snippets]
+└─$ ./cat32 /proc/self/maps | grep libc | head -n1
+f7c00000-f7c20000 r--p 00000000 103:02 13111313                          /usr/lib32/libc.so.6
+
+┌──(jmill@ubun)-[~/snippets]
+└─$ ./cat32 /proc/self/maps | grep libc | head -n1
+f7c00000-f7c20000 r--p 00000000 103:02 13111313                          /usr/lib32/libc.so.6
+
+┌──(jmill@ubun)-[~/snippets]
+└─$ ./cat32 /proc/self/maps | grep libc | head -n1
+f7c00000-f7c20000 r--p 00000000 103:02 13111313                          /usr/lib32/libc.so.6
+```
+
+And.... yeah....
+
+It's just completely broken, the base address of libc for this program is just always `f7c00000` on my machine.
+
+Why is not being randomized at all on 32-bit? well let's check how much randomization is applied to 32-bit mappings:
+
+```bash
+┌──(jmill@ubun)-[~]
+└─$ sudo sysctl vm.mmap_rnd_compat_bits
+vm.mmap_rnd_compat_bits = 8
+```
+
+We were losing 9 bits on 64-bit, but with only 8 bits of randomization on 32-bit losing that many bits means we just completely lose all randomization.
+
+# Huge Page, Huge Problem
+
+So wtf is going on, 9 bits of ASLR are missing on 64-bit libc and 32-bit libc is not being randomized at all???
+
+When I found the 64-bit regression it was 3am and I was hacking at some awful CTF challenge idea (as one does) that involved a partial address overwrite, I was extremely confused as to why more than the last 12 bits were constant and decided I'd look into it in the morning. I went into the lab the next day and spent a while looking at but was still pretty lost as to what was going on. I asked kylebot since he was around if he had any ideas as to what was going on, eventually we came to the conclusion that because it was related to the mappings being >=2MB it must be something to do with Huge Pages.
+
+If you aren't aware of what Huge Pages are, you should read my blog post on paging :p
+
+In short, on x86_64 there are two variants of 'Huge Pages', one of the two is the 2MB Huge Page. Similar to how a normal 4KB Page must be 12 bit aligned, a 2MB Huge Page must be 21 bit aligned. That 9-bit difference in alignment from 12 to 21 is where this regression comes from.
+
+A number of filesystems switched to using thp_get_unmapped_area [a long time ago](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit?id=dbe6ec815641aa22b50775aaeb47fa3a8d04ccf1), and more recently (5.18) thp_get_unmapped_area was changed [to make all mappings >=2MB have 2MB alignment](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=1854bc6e2420472676c5c90d3d6b15f6cd640e40) instead of just DAX mappings:
+
+```diff
+diff --git a/mm/huge_memory.c b/mm/huge_memory.c
+index 38e233a7d9776..f85b04b31bd12 100644
+--- a/mm/huge_memory.c
++++ b/mm/huge_memory.c
+@@ -582,13 +582,10 @@ unsigned long thp_get_unmapped_area(struct file *filp, unsigned long addr,
+ 	unsigned long ret;
+ 	loff_t off = (loff_t)pgoff << PAGE_SHIFT;
+
+-	if (!IS_DAX(filp->f_mapping->host) || !IS_ENABLED(CONFIG_FS_DAX_PMD))
+-		goto out;
+-
+ 	ret = __thp_get_unmapped_area(filp, addr, len, off, flags, PMD_SIZE);
+ 	if (ret)
+ 		return ret;
+-out:
++
+ 	return current->mm->get_unmapped_area(filp, addr, len, pgoff, flags);
+ }
+ EXPORT_SYMBOL_GPL(thp_get_unmapped_area);
+ ```
+
+So, to summarize, major filesystems call thp_get_unmapped_area, this patch makes it so regular file backed mappings that go through `thp_get_unmapped_area` can be backed by Huge Pages, and some libc's have (somewhat recently) surpassed 2MB. This all converged such that on some distros libc is being fix-mapped for 32-bit applications and 9-bits of libc's ASLR for 64-bit applications has been lost (again impact will vary across distros).
+
+I've been stressing libc just because it's used by so many applications and has all the ROP gadgets anyone needs anyways, but just to be clear it's not just libc, any library >=2MB is potentially affected, and even anonymous mappings >=2MB are being 2MB aligned on my Ubuntu 22.04 system, though I'm still not sure what that's about...
+
+# Wrapping up
+
+The impact of this on 32-bit applications is fairly obvious, ASLR is just broken, exploits can be deterministicly hijack pointers using large library addresses. For 64-bit applications, 19-bits of randomization is still a good amount but it does mean that partial address overwites on pointers to >=2MB libraries are stronger, e.g. the last 2-bytes of a library pointer can be overwritten deterministically (previously only 1-byte overwrites were deterministic).
+
+I noticed the Ubuntu issue was updated recently to say they are [increasing the base mmap_rnd_bits](https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble/commit/?h=master-next&id=760c2b1fa1f5e95be1117bc7b80afb8441d4b002) to account for the lost randomization, which seems reasonable, 32-bit will get most of its randomization back. It won't address partial overwites becoming more deterministic though, and it's only been commited to the 24.04 tree so far from what I can tell.
+
+Hopefully, more distros will look into mitigating this.
+
+Thanks for reading!
