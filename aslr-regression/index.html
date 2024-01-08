@@ -1,0 +1,786 @@
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.24.0 by Michael Rose
+  Copyright 2013-2020 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+
+<!-- begin _includes/seo.html --><title>ASLRn’t: How memory alignment broke library ASLR - zolutal’s blog</title>
+<meta name="description" content="Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.">
+
+
+  <meta name="author" content="Justin Miller">
+  
+  <meta property="article:author" content="Justin Miller">
+  
+
+
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="zolutal's blog">
+<meta property="og:title" content="ASLRn’t: How memory alignment broke library ASLR">
+<meta property="og:url" content="https://zolutal.github.io/aslr-regression/">
+
+
+  <meta property="og:description" content="Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.">
+
+
+
+
+
+  <meta name="twitter:site" content="@zolutal">
+  <meta name="twitter:title" content="ASLRn’t: How memory alignment broke library ASLR">
+  <meta name="twitter:description" content="Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.">
+  <meta name="twitter:url" content="https://zolutal.github.io/aslr-regression/">
+
+  
+    <meta name="twitter:card" content="summary">
+    
+  
+
+  
+
+
+
+  <meta property="article:published_time" content="2024-01-08T00:00:00+00:00">
+
+
+
+
+
+
+<link rel="canonical" href="https://zolutal.github.io/aslr-regression/">
+
+
+
+
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Person",
+      "name": "Justin Miller",
+      "url": "https://zolutal.github.io/"
+    
+  }
+</script>
+
+
+
+
+
+
+
+<!-- end _includes/seo.html -->
+
+
+
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css"></noscript>
+
+
+
+    <!-- start custom head snippets -->
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single wide">
+    <nav class="skip-links">
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+
+    <!--[if lt IE 9]>
+<div class="notice--danger align-center" style="margin: 0;">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience.</div>
+<![endif]-->
+
+    
+
+<div class="masthead">
+  <div class="masthead__inner-wrap">
+    <div class="masthead__menu">
+      <nav id="site-nav" class="greedy-nav">
+        
+        <a class="site-title" href="/">
+          zolutal's blog
+          
+        </a>
+        <ul class="visible-links"><li class="masthead__menu-item">
+              <a href="/about">about</a>
+            </li></ul>
+        
+        <button class="greedy-nav__toggle hidden" type="button">
+          <span class="visually-hidden">Toggle menu</span>
+          <div class="navicon"></div>
+        </button>
+        <ul class="hidden-links hidden"></ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+
+    <div class="initial-content">
+      
+
+
+  
+    
+
+
+
+<nav class="breadcrumbs">
+  <ol itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    
+    
+      
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a href="https://zolutal.github.io/" itemprop="item"><span itemprop="name">Home</span></a>
+          <meta itemprop="position" content="1" />
+        </li>
+        <span class="sep">/</span>
+      
+      
+        <li class="current">ASLRn't: How memory alignment broke library ASLR</li>
+      
+    
+  </ol>
+</nav>
+
+  
+
+
+<div id="main" role="main">
+  
+  <div class="sidebar sticky">
+  
+
+
+<div itemscope itemtype="https://schema.org/Person">
+
+  
+
+  <div class="author__content">
+    
+      <h3 class="author__name" itemprop="name">Justin Miller</h3>
+    
+    
+      <div class="author__bio" itemprop="description">
+        <p>systems hacking</p>
+
+      </div>
+    
+  </div>
+
+  <div class="author__urls-wrapper">
+    <button class="btn btn--inverse">Follow</button>
+    <ul class="author__urls social-icons">
+      
+        <li itemprop="homeLocation" itemscope itemtype="https://schema.org/Place">
+          <i class="fas fa-fw fa-map-marker-alt" aria-hidden="true"></i> <span itemprop="name">Arizona</span>
+        </li>
+      
+
+      
+        
+          
+        
+          
+        
+          
+            <li><a href="https://twitter.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i><span class="label">Twitter</span></a></li>
+          
+        
+          
+            <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i><span class="label">GitHub</span></a></li>
+          
+        
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      <!--
+  <li>
+    <a href="http://link-to-whatever-social-network.com/user/" itemprop="sameAs" rel="nofollow noopener noreferrer">
+      <i class="fas fa-fw" aria-hidden="true"></i> Custom Social Profile Link
+    </a>
+  </li>
+-->
+    </ul>
+  </div>
+</div>
+
+  
+  </div>
+
+
+
+  <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
+    <meta itemprop="headline" content="ASLRn’t: How memory alignment broke library ASLR">
+    <meta itemprop="description" content="Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.">
+    <meta itemprop="datePublished" content="2024-01-08T00:00:00+00:00">
+    
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          <h1 id="page-title" class="page__title" itemprop="headline">ASLRn’t: How memory alignment broke library ASLR
+</h1>
+          
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2024-01-08T00:00:00+00:00">January 8, 2024</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          8 minute read
+        
+      </span>
+    
+  </p>
+
+
+        </header>
+      
+
+      <section class="page__content" itemprop="text">
+        
+        <p>Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.</p>
+
+<p>But there is no bait here, well ok, maybe 32-bit ASLR is a little bit of a bait…</p>
+
+<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
+
+<p>Then what are these “certain filesystems”? Those would be: ext4, ext2, btrfs, xfs, and fuse. So, some of the most widely used filesystems.</p>
+
+<p>I’ve only actually verified ext4 and btrfs, though, according to the kernel source code the other filesystems <a href="https://elixir.bootlin.com/linux/v6.7/C/ident/thp_get_unmapped_area"><em>should</em> be affected</a>, but please let me know if I am wrong on any of these being affected. I’ve reproduced the 64-bit regression on Ubuntu w/ ext4, Arch w/ ext4, and Fedora w/ btrfs. I’ve also reproduced the 32-bit regression on those Ubuntu, Arch, and Fedora systems.</p>
+
+<h2 id="being-responsible">being responsible</h2>
+
+<p>I contacted Ubuntu security about this (I initially assumed only they were affected) and they informed me that this regression is being tracked by them publicly here:</p>
+
+<p><a href="https://bugs.launchpad.net/ubuntu-kernel-tests/+bug/1983357">https://bugs.launchpad.net/ubuntu-kernel-tests/+bug/1983357</a></p>
+
+<p>Though I independently discovered that 64-bit library ASLR had regressed, the bug has been publicly tracked by Ubuntu for quite some time before I found it. The impact of this regression on 32-bit library ASLR was not found by me at all, I learned about it from the bug report above. Props to Ubuntu for having a regression test for this kind of thing!</p>
+
+<p>But, despite this issue being public for over a year on Ubuntu’s bug tracker, it seems like it has gone mostly unnoticed? I have only found it referenced on that Ubuntu bug tracker and <a href="https://groups.google.com/g/linux.debian.bugs.dist/c/t6RJSUQ6gp4">here</a> on the debian bugs newsgroup.</p>
+
+<h1 id="the-64-bit-regression">The 64-bit regression</h1>
+
+<p>For the regression to occur, the prerequisites must be met: an affected filesystem, a recent-ish kernel (past ~year or so), and a library that is &gt;=2MB (this size may need to be larger depending on how the loader is implemented)</p>
+
+<p>In my case all of these were met by default on my Ubuntu 22.04 system which has an ext4 filesystem, a 6.2.0 kernel, and a 2.2MB libc.</p>
+
+<p>With those requirements met, testing for the regression is pretty simple:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~]
+└─<span class="nv">$ </span><span class="nb">cat</span> /proc/self/maps | <span class="nb">grep </span>libc | <span class="nb">head</span> <span class="nt">-n</span> 1
+7ff67dc00000-7ff67dc28000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+
+┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~]
+└─<span class="nv">$ </span><span class="nb">cat</span> /proc/self/maps | <span class="nb">grep </span>libc | <span class="nb">head</span> <span class="nt">-n</span> 1
+7f0c33600000-7f0c33628000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+
+┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~]
+└─<span class="nv">$ </span><span class="nb">cat</span> /proc/self/maps | <span class="nb">grep </span>libc | <span class="nb">head</span> <span class="nt">-n</span> 1
+7fc6ef800000-7fc6ef828000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+</code></pre></div></div>
+
+<p>Boom! ASLR is messed up, see!?!?</p>
+
+<p>Okay, but more seriously, lets break down what is going on there.</p>
+
+<p>Here we have an address range representing the location of libc in the <code class="language-plaintext highlighter-rouge">cat</code> process’s address space:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>7ff67dc00000-7ff67dc28000 r--p 00000000 103:02 13111263                  /usr/lib/x86_64-linux-gnu/libc.so.6
+</code></pre></div></div>
+
+<p>The first value on that line <code class="language-plaintext highlighter-rouge">7fcc68000000</code> is the ‘base address’ of libc for that run of <code class="language-plaintext highlighter-rouge">cat</code>. The base address is randomly chosen by the kernel when the library is mapped in, and everything in libc is a constant offset from that (code, globals, etc…). So for library ASLR to be regressed that would mean that that base address is less random than it should be.</p>
+
+<p>I’ve claimed the regression affects ASLR of libraries &gt;=2MB in size, so let’s compare this allegedly malfunctioning libc ASLR to the ASLR of some smaller library memory mapping.</p>
+
+<p>Here is a little python snippet to run <code class="language-plaintext highlighter-rouge">cat /proc/self/maps</code> 1000 times and do a bitwise OR on the libc base addresses we receive. With this, if a bit in the base address is set in any of those 1000 runs we would see it in the result.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">In</span> <span class="p">[</span><span class="mi">1</span><span class="p">]:</span> <span class="kn">from</span> <span class="n">subprocess</span> <span class="kn">import</span> <span class="n">check_output</span>
+   <span class="p">...:</span> <span class="n">result</span> <span class="o">=</span> <span class="mh">0x0</span>
+   <span class="p">...:</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nf">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">1000</span><span class="p">):</span>
+   <span class="p">...:</span>     <span class="n">out</span> <span class="o">=</span> <span class="nf">check_output</span><span class="p">(</span><span class="sh">"</span><span class="s">cat /proc/self/maps | grep libc | head -n1</span><span class="sh">"</span><span class="p">,</span> <span class="n">shell</span><span class="o">=</span><span class="bp">True</span><span class="p">).</span><span class="nf">decode</span><span class="p">()</span>
+   <span class="p">...:</span>     <span class="n">base_address</span> <span class="o">=</span> <span class="nf">int</span><span class="p">(</span><span class="n">out</span><span class="p">.</span><span class="nf">split</span><span class="p">(</span><span class="sh">'</span><span class="s">-</span><span class="sh">'</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">16</span><span class="p">)</span>
+   <span class="p">...:</span>     <span class="n">result</span> <span class="o">|=</span> <span class="n">base_address</span>
+   <span class="p">...:</span> <span class="nf">hex</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+<span class="n">Out</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span> <span class="sh">'</span><span class="s">0x7fffffe00000</span><span class="sh">'</span>
+</code></pre></div></div>
+
+<p>Alright, so for 1000 OR’d libc base addresses <code class="language-plaintext highlighter-rouge">0x7fffffe00000</code> is the combined value we get, meaning the last five nibbles + 1 bit (21 bits) were zero on all of those 1000 runs. So those low 21 bits must not be part of the randomization on the mapping, since they aren’t changing.</p>
+
+<p>Let’s run it again but instead of grepping for the base address of libc, let’s do it for <code class="language-plaintext highlighter-rouge">ld</code> which is signifcantly smaller than 2MB (236KB)</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">In</span> <span class="p">[</span><span class="mi">2</span><span class="p">]:</span> <span class="kn">from</span> <span class="n">subprocess</span> <span class="kn">import</span> <span class="n">check_output</span>
+   <span class="p">...:</span> <span class="n">result</span> <span class="o">=</span> <span class="mh">0x0</span>
+   <span class="p">...:</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nf">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">1000</span><span class="p">):</span>
+   <span class="p">...:</span>     <span class="n">out</span> <span class="o">=</span> <span class="nf">check_output</span><span class="p">(</span><span class="sh">"</span><span class="s">cat /proc/self/maps | grep ld | head -n1</span><span class="sh">"</span><span class="p">,</span> <span class="n">shell</span><span class="o">=</span><span class="bp">True</span><span class="p">).</span><span class="nf">decode</span><span class="p">()</span>
+   <span class="p">...:</span>     <span class="n">base_address</span> <span class="o">=</span> <span class="nf">int</span><span class="p">(</span><span class="n">out</span><span class="p">.</span><span class="nf">split</span><span class="p">(</span><span class="sh">'</span><span class="s">-</span><span class="sh">'</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">16</span><span class="p">)</span>
+   <span class="p">...:</span>     <span class="n">result</span> <span class="o">|=</span> <span class="n">base_address</span>
+   <span class="p">...:</span> <span class="nf">hex</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+<span class="n">Out</span><span class="p">[</span><span class="mi">2</span><span class="p">]:</span> <span class="sh">'</span><span class="s">0x7ffffffff000</span><span class="sh">'</span>
+</code></pre></div></div>
+
+<p>Okay, so that is clearly different… libc’s base address had 21 bits of trailing zeros but ld’s base address has 12 bits of trailing zeros.</p>
+
+<p>What we are observing here is that ld’s base address has 9 more bits of randomization than libc’s base address and this wasn’t the case in the past (both because libc was &lt;2MB and because the change that causes this wasn’t implemented yet)</p>
+
+<p>So libc lost 9 bits of its randomization, to… something? for being &gt;=2MB?</p>
+
+<h1 id="the-32-bit-breakage">The 32-bit breakage</h1>
+
+<p>So I claimed 32-bit is straight up broken, let’s see it.</p>
+
+<p>To observe the breakage you’ll of course need a 32-bit binary, I compiled this <code class="language-plaintext highlighter-rouge">cat</code> clone (credit: ChatGPT lol) as a 32-bit binary:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// gcc -m32 cat32.c -o cat32</span>
+<span class="cp">#include</span> <span class="cpf">&lt;unistd.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+</span>
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">argv</span><span class="p">[])</span> <span class="p">{</span>
+    <span class="kt">FILE</span> <span class="o">*</span><span class="n">file</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">c</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Usage: %s &lt;filename&gt;</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+        <span class="k">return</span> <span class="n">EXIT_FAILURE</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">file</span> <span class="o">=</span> <span class="n">fopen</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="s">"r"</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">file</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">perror</span><span class="p">(</span><span class="s">"Error opening file"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="n">EXIT_FAILURE</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">while</span> <span class="p">((</span><span class="n">c</span> <span class="o">=</span> <span class="n">fgetc</span><span class="p">(</span><span class="n">file</span><span class="p">))</span> <span class="o">!=</span> <span class="n">EOF</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">putchar</span><span class="p">(</span><span class="n">c</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="n">fclose</span><span class="p">(</span><span class="n">file</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="n">EXIT_SUCCESS</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Okay so let’s do the same thing as we did for testing the 64-bit regression, just cat out <code class="language-plaintext highlighter-rouge">/proc/self/maps</code> but with our 32-bit cat:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~/snippets]
+└─<span class="nv">$ </span>./cat32 /proc/self/maps | <span class="nb">grep </span>libc | <span class="nb">head</span> <span class="nt">-n1</span>
+f7c00000-f7c20000 r--p 00000000 103:02 13111313                          /usr/lib32/libc.so.6
+
+┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~/snippets]
+└─<span class="nv">$ </span>./cat32 /proc/self/maps | <span class="nb">grep </span>libc | <span class="nb">head</span> <span class="nt">-n1</span>
+f7c00000-f7c20000 r--p 00000000 103:02 13111313                          /usr/lib32/libc.so.6
+
+┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~/snippets]
+└─<span class="nv">$ </span>./cat32 /proc/self/maps | <span class="nb">grep </span>libc | <span class="nb">head</span> <span class="nt">-n1</span>
+f7c00000-f7c20000 r--p 00000000 103:02 13111313                          /usr/lib32/libc.so.6
+</code></pre></div></div>
+
+<p>And…. yeah….</p>
+
+<p>It’s just completely broken, the base address of libc for this program is just always <code class="language-plaintext highlighter-rouge">f7c00000</code> on my machine.</p>
+
+<p>Why is not being randomized at all on 32-bit? well let’s check how much randomization is applied to 32-bit mappings:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──<span class="o">(</span>jmill@ubun<span class="o">)</span>-[~]
+└─<span class="nv">$ </span><span class="nb">sudo </span>sysctl vm.mmap_rnd_compat_bits
+vm.mmap_rnd_compat_bits <span class="o">=</span> 8
+</code></pre></div></div>
+
+<p>We were losing 9 bits on 64-bit, but with only 8 bits of randomization on 32-bit losing that many bits means we just completely lose all randomization.</p>
+
+<h1 id="huge-page-huge-problem">Huge Page, Huge Problem</h1>
+
+<p>So wtf is going on, 9 bits of ASLR are missing on 64-bit libc and 32-bit libc is not being randomized at all???</p>
+
+<p>When I found the 64-bit regression it was 3am and I was hacking at some awful CTF challenge idea (as one does) that involved a partial address overwrite, I was extremely confused as to why more than the last 12 bits were constant and decided I’d look into it in the morning. I went into the lab the next day and spent a while looking at but was still pretty lost as to what was going on. I asked kylebot since he was around if he had any ideas as to what was going on, eventually we came to the conclusion that because it was related to the mappings being &gt;=2MB it must be something to do with Huge Pages.</p>
+
+<p>If you aren’t aware of what Huge Pages are, you should read my blog post on paging :p</p>
+
+<p>In short, on x86_64 there are two variants of ‘Huge Pages’, one of the two is the 2MB Huge Page. Similar to how a normal 4KB Page must be 12 bit aligned, a 2MB Huge Page must be 21 bit aligned. That 9-bit difference in alignment from 12 to 21 is where this regression comes from.</p>
+
+<p>A number of filesystems switched to using thp_get_unmapped_area <a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit?id=dbe6ec815641aa22b50775aaeb47fa3a8d04ccf1">a long time ago</a>, and more recently (5.18) thp_get_unmapped_area was changed <a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=1854bc6e2420472676c5c90d3d6b15f6cd640e40">to make all mappings &gt;=2MB have 2MB alignment</a> instead of just DAX mappings:</p>
+
+<div class="language-diff highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gh">diff --git a/mm/huge_memory.c b/mm/huge_memory.c
+index 38e233a7d9776..f85b04b31bd12 100644
+</span><span class="gd">--- a/mm/huge_memory.c
+</span><span class="gi">+++ b/mm/huge_memory.c
+</span><span class="p">@@ -582,13 +582,10 @@</span> unsigned long thp_get_unmapped_area(struct file *filp, unsigned long addr,
+ 	unsigned long ret;
+ 	loff_t off = (loff_t)pgoff &lt;&lt; PAGE_SHIFT;
+<span class="err">
+</span><span class="gd">-	if (!IS_DAX(filp-&gt;f_mapping-&gt;host) || !IS_ENABLED(CONFIG_FS_DAX_PMD))
+-		goto out;
+-
+</span> 	ret = __thp_get_unmapped_area(filp, addr, len, off, flags, PMD_SIZE);
+ 	if (ret)
+ 		return ret;
+<span class="gd">-out:
+</span><span class="gi">+
+</span> 	return current-&gt;mm-&gt;get_unmapped_area(filp, addr, len, pgoff, flags);
+ }
+ EXPORT_SYMBOL_GPL(thp_get_unmapped_area);
+</code></pre></div></div>
+
+<p>So, to summarize, major filesystems call thp_get_unmapped_area, this patch makes it so regular file backed mappings that go through <code class="language-plaintext highlighter-rouge">thp_get_unmapped_area</code> can be backed by Huge Pages, and some libc’s have (somewhat recently) surpassed 2MB. This all converged such that on some distros libc is being fix-mapped for 32-bit applications and 9-bits of libc’s ASLR for 64-bit applications has been lost (again impact will vary across distros).</p>
+
+<p>I’ve been stressing libc just because it’s used by so many applications and has all the ROP gadgets anyone needs anyways, but just to be clear it’s not just libc, any library &gt;=2MB is potentially affected, and even anonymous mappings &gt;=2MB are being 2MB aligned on my Ubuntu 22.04 system, though I’m still not sure what that’s about…</p>
+
+<h1 id="wrapping-up">Wrapping up</h1>
+
+<p>The impact of this on 32-bit applications is fairly obvious, ASLR is just broken, exploits can be deterministicly hijack pointers using large library addresses. For 64-bit applications, 19-bits of randomization is still a good amount but it does mean that partial address overwites on pointers to &gt;=2MB libraries are stronger, e.g. the last 2-bytes of a library pointer can be overwritten deterministically (previously only 1-byte overwrites were deterministic).</p>
+
+<p>I noticed the Ubuntu issue was updated recently to say they are <a href="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble/commit/?h=master-next&amp;id=760c2b1fa1f5e95be1117bc7b80afb8441d4b002">increasing the base mmap_rnd_bits</a> to account for the lost randomization, which seems reasonable, 32-bit will get most of its randomization back. It won’t address partial overwites becoming more deterministic though, and it’s only been commited to the 24.04 tree so far from what I can tell.</p>
+
+<p>Hopefully, more distros will look into mitigating this.</p>
+
+<p>Thanks for reading!</p>
+
+        
+      </section>
+
+      <footer class="page__meta">
+        
+        
+  
+
+
+  
+
+  <p class="page__taxonomy">
+    <strong><i class="fas fa-fw fa-tags" aria-hidden="true"></i> Tags: </strong>
+    <span itemprop="keywords">
+    
+      <a href="/tags/#aslr" class="page__taxonomy-item" rel="tag">ASLR</a><span class="sep">, </span>
+    
+      <a href="/tags/#linux" class="page__taxonomy-item" rel="tag">Linux</a><span class="sep">, </span>
+    
+      <a href="/tags/#x86-64" class="page__taxonomy-item" rel="tag">x86_64</a>
+    
+    </span>
+  </p>
+
+
+
+
+        
+
+  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2024-01-08T00:00:00+00:00">January 8, 2024</time></p>
+
+
+      </footer>
+
+      
+
+      
+  <nav class="pagination">
+    
+      <a href="/understanding-paging/" class="pagination--pager" title="Understanding x86_64 Paging
+">Previous</a>
+    
+    
+      <a href="#" class="pagination--pager disabled">Next</a>
+    
+  </nav>
+
+    </div>
+
+    
+  </article>
+
+  
+  
+    <div class="page__related">
+      <h4 class="page__related-title">You may also enjoy</h4>
+      <div class="grid__wrapper">
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/understanding-paging/" rel="permalink">Understanding x86_64 Paging
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-12-27T00:00:00+00:00">December 27, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          22 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I’ve spent quite a lot of time messing with x86_64 page tables, understanding address translation is not easy and when I started learning about it I felt lik...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/corctf-sysruption/" rel="permalink">corCTF 2023: sysruption writeup
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-07-30T00:00:00+00:00">July 30, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          25 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/dedup-attacks/" rel="permalink">Understanding Memory Deduplication Attacks
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-06-17T00:00:00+00:00">June 17, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          13 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak...</p>
+  </article>
+</div>
+
+        
+      </div>
+    </div>
+  
+  
+</div>
+
+    </div>
+
+    
+
+    <div id="footer" class="page__footer">
+      <footer>
+        <!-- start custom footer snippets -->
+
+<!-- end custom footer snippets -->
+        <div class="page__footer-follow">
+  <ul class="social-icons">
+    
+      <li><strong>Follow:</strong></li>
+    
+
+    
+      
+        
+          <li><a href="https://twitter.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i> Twitter</a></li>
+        
+      
+        
+      
+        
+          <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i> GitHub</a></li>
+        
+      
+        
+      
+        
+      
+        
+      
+    
+
+    
+  </ul>
+</div>
+
+<div class="page__footer-copyright">&copy; 2024 Justin Miller. Powered by <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://mademistakes.com/work/minimal-mistakes-jekyll-theme/" rel="nofollow">Minimal Mistakes</a>.</div>
+
+      </footer>
+    </div>
+
+    
+  <script src="/assets/js/main.min.js"></script>
+
+
+
+
+
+
+
+
+
+
+  </body>
+</html>

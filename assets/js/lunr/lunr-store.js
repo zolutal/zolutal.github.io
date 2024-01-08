@@ -16,4 +16,10 @@ var store = [{
         "tags": ["x86_64","Linux","Architecture"],
         "url": "/understanding-paging/",
         "teaser": null
+      },{
+        "title": "ASLRn't: How memory alignment broke library ASLR",
+        "excerpt":"Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure. But there is no bait here, well ok, maybe 32-bit ASLR is a little bit of a bait… As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with...","categories": [],
+        "tags": ["Linux","ASLR","x86_64"],
+        "url": "/aslr-regression/",
+        "teaser": null
       }]
