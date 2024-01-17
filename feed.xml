@@ -1,8 +1,21 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2024-01-08T20:06:36+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">ASLRn’t: How memory alignment broke library ASLR</title><link href="https://zolutal.github.io/aslrnt/" rel="alternate" type="text/html" title="ASLRn’t: How memory alignment broke library ASLR" /><published>2024-01-08T00:00:00+00:00</published><updated>2024-01-08T00:00:00+00:00</updated><id>https://zolutal.github.io/aslrnt</id><content type="html" xml:base="https://zolutal.github.io/aslrnt/"><![CDATA[<p>Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2024-01-17T08:30:52+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">ASLRn’t: How memory alignment broke library ASLR</title><link href="https://zolutal.github.io/aslrnt/" rel="alternate" type="text/html" title="ASLRn’t: How memory alignment broke library ASLR" /><published>2024-01-08T00:00:00+00:00</published><updated>2024-01-08T00:00:00+00:00</updated><id>https://zolutal.github.io/aslrnt</id><content type="html" xml:base="https://zolutal.github.io/aslrnt/"><![CDATA[<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
 
-<p>But there is no bait here, well ok, maybe 32-bit ASLR is a little bit of a bait…</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>### Edit 2024-01-17:
 
-<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
+In retrospect, I could have gone about this more responsibly.
+
+At the time of writing and publishing this, I felt that having reported the bug
+to a distro and the bug being publicly exposed for over a year, and a patch
+having being released by that distro, that it was fine to write about.
+
+Maybe it was, maybe it wasn't... I'm not really sure.
+
+Regardless, I think that I could have been more diligent in ensuring other affected
+parties were aware of the issue even if it was public. I will be more thorough in
+reporting in the future.
+
+- Justin
+</code></pre></div></div>
 
 <p>Then what are these “certain filesystems”? Those would be: ext4, ext2, btrfs, xfs, and fuse. So, some of the most widely used filesystems.</p>
 
@@ -193,7 +206,7 @@ index 38e233a7d9776..f85b04b31bd12 100644
 
 <p>Hopefully, more distros will look into mitigating this.</p>
 
-<p>Thanks for reading!</p>]]></content><author><name>Justin Miller</name></author><category term="Linux" /><category term="ASLR" /><category term="x86_64" /><summary type="html"><![CDATA[Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure.]]></summary></entry><entry><title type="html">Understanding x86_64 Paging</title><link href="https://zolutal.github.io/understanding-paging/" rel="alternate" type="text/html" title="Understanding x86_64 Paging" /><published>2023-12-27T00:00:00+00:00</published><updated>2023-12-27T00:00:00+00:00</updated><id>https://zolutal.github.io/understanding-paging</id><content type="html" xml:base="https://zolutal.github.io/understanding-paging/"><![CDATA[<p>I’ve spent quite a lot of time messing with x86_64 page tables, understanding address translation is not easy and when I started learning about it I felt like a lot of the material out there on how it works was hard for me to wrap my head around. So in this blog post I am going to attempt to provide a kind of “what I wish I had when learning about paging”.</p>
+<p>Thanks for reading!</p>]]></content><author><name>Justin Miller</name></author><category term="Linux" /><category term="ASLR" /><category term="x86_64" /><summary type="html"><![CDATA[As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is literally broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.]]></summary></entry><entry><title type="html">Understanding x86_64 Paging</title><link href="https://zolutal.github.io/understanding-paging/" rel="alternate" type="text/html" title="Understanding x86_64 Paging" /><published>2023-12-27T00:00:00+00:00</published><updated>2023-12-27T00:00:00+00:00</updated><id>https://zolutal.github.io/understanding-paging</id><content type="html" xml:base="https://zolutal.github.io/understanding-paging/"><![CDATA[<p>I’ve spent quite a lot of time messing with x86_64 page tables, understanding address translation is not easy and when I started learning about it I felt like a lot of the material out there on how it works was hard for me to wrap my head around. So in this blog post I am going to attempt to provide a kind of “what I wish I had when learning about paging”.</p>
 
 <p>Quick note, I’ll only be discussing paging in the context of PML4 (Page Map Level 4) since it’s currently the dominant x86_64 paging scheme and probably will be for a while still.</p>
 

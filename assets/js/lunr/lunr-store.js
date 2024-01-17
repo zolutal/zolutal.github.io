@@ -18,7 +18,7 @@ var store = [{
         "teaser": null
       },{
         "title": "ASLRn't: How memory alignment broke library ASLR",
-        "excerpt":"Reading the title of this blog, you may be rightfully skeptical, something “broke library ASLR”??? uhuh, sure. But there is no bait here, well ok, maybe 32-bit ASLR is a little bit of a bait… As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with...","categories": [],
+        "excerpt":"As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is literally broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28...","categories": [],
         "tags": ["Linux","ASLR","x86_64"],
         "url": "/aslrnt/",
         "teaser": null
