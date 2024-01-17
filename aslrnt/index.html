@@ -329,23 +329,6 @@
         
         <p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>### Edit 2024-01-17:
-
-In retrospect, I could have gone about this more responsibly.
-
-At the time of writing and publishing this, I felt that having reported the bug
-to a distro and the bug being publicly exposed for over a year, and a patch
-having being released by that distro, that it was fine to write about.
-
-Maybe it was, maybe it wasn't... I'm not really sure.
-
-Regardless, I think that I could have been more diligent in ensuring other affected
-parties were aware of the issue even if it was public. I will be more thorough in
-reporting in the future.
-
-- Justin
-</code></pre></div></div>
-
 <p>Then what are these “certain filesystems”? Those would be: ext4, ext2, btrfs, xfs, and fuse. So, some of the most widely used filesystems.</p>
 
 <p>I’ve only actually verified ext4 and btrfs, though, according to the kernel source code the other filesystems <a href="https://elixir.bootlin.com/linux/v6.7/C/ident/thp_get_unmapped_area"><em>should</em> be affected</a>, but please let me know if I am wrong on any of these being affected. I’ve reproduced the 64-bit regression on Ubuntu w/ ext4, Arch w/ ext4, and Fedora w/ btrfs. I’ve also reproduced the 32-bit regression on those Ubuntu, Arch, and Fedora systems.</p>
