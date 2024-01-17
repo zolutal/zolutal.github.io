@@ -135,7 +135,7 @@ Here is a little diagram to show what each bit in the entry represents:
        56        48        40        32        24        16         8         0
 ```
 
-and here's a key for what each of those label mean:
+and here's a key for what each of those labels mean:
 
 - NX (Not Executable) -- if this bit is set, no memory mapping that is a descendant of this PGD entry will be executable.
 - Reserved -- these values must be zero.
@@ -436,7 +436,7 @@ Looks like the entry has the last three bits (present, user, and writeable) set,
 Masking the bits [12, 51) gives us the physical address of the PUD:
 
 ```
-gef➤  p/x 0x0000000008c33067 & ~((1<<12)-1) & ((1<<51) - 1)
+gef➤  p/x 0x0000000008c33067 & ~((1<<12)-1) & ((1ull<<51) - 1)
 $46 = 0x8c33000
 ```
 
