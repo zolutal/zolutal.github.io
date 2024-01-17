@@ -447,7 +447,7 @@ $6 = 100100011111111001010000001100111
        56        48        40        32        24        16         8         0
 </code></pre></div></div>
 
-<p>and here’s a key for what each of those label mean:</p>
+<p>and here’s a key for what each of those labels mean:</p>
 
 <ul>
   <li>NX (Not Executable) – if this bit is set, no memory mapping that is a descendant of this PGD entry will be executable.</li>
@@ -741,7 +741,7 @@ $45 = 0x10d664ff8
 
 <p>Masking the bits [12, 51) gives us the physical address of the PUD:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef➤  p/x 0x0000000008c33067 &amp; ~((1&lt;&lt;12)-1) &amp; ((1&lt;&lt;51) - 1)
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef➤  p/x 0x0000000008c33067 &amp; ~((1&lt;&lt;12)-1) &amp; ((1ull&lt;&lt;51) - 1)
 $46 = 0x8c33000
 </code></pre></div></div>
 

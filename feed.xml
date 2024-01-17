@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2024-01-17T08:30:52+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">ASLRn’t: How memory alignment broke library ASLR</title><link href="https://zolutal.github.io/aslrnt/" rel="alternate" type="text/html" title="ASLRn’t: How memory alignment broke library ASLR" /><published>2024-01-08T00:00:00+00:00</published><updated>2024-01-08T00:00:00+00:00</updated><id>https://zolutal.github.io/aslrnt</id><content type="html" xml:base="https://zolutal.github.io/aslrnt/"><![CDATA[<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2024-01-17T08:36:19+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">ASLRn’t: How memory alignment broke library ASLR</title><link href="https://zolutal.github.io/aslrnt/" rel="alternate" type="text/html" title="ASLRn’t: How memory alignment broke library ASLR" /><published>2024-01-08T00:00:00+00:00</published><updated>2024-01-08T00:00:00+00:00</updated><id>https://zolutal.github.io/aslrnt</id><content type="html" xml:base="https://zolutal.github.io/aslrnt/"><![CDATA[<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>### Edit 2024-01-17:
 
@@ -326,7 +326,7 @@ $6 = 100100011111111001010000001100111
        56        48        40        32        24        16         8         0
 </code></pre></div></div>
 
-<p>and here’s a key for what each of those label mean:</p>
+<p>and here’s a key for what each of those labels mean:</p>
 
 <ul>
   <li>NX (Not Executable) – if this bit is set, no memory mapping that is a descendant of this PGD entry will be executable.</li>
@@ -620,7 +620,7 @@ $45 = 0x10d664ff8
 
 <p>Masking the bits [12, 51) gives us the physical address of the PUD:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef➤  p/x 0x0000000008c33067 &amp; ~((1&lt;&lt;12)-1) &amp; ((1&lt;&lt;51) - 1)
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef➤  p/x 0x0000000008c33067 &amp; ~((1&lt;&lt;12)-1) &amp; ((1ull&lt;&lt;51) - 1)
 $46 = 0x8c33000
 </code></pre></div></div>
 
