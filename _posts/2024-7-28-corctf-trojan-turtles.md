@@ -463,14 +463,14 @@ gef> x/8gx 0xffff8d74c2482000
 0xffff8d74c2482030:     0x0000000000000000      0x0000000000000000
 ```
 
-To insert the malicous EPT entry we wrote `0x987` into an entry in the EPT PDPT which means -- map 1GB of host physical memory starting from physical address zero to the guest physical address associated with this entry.
+To insert the malicious EPT entry we wrote `0x987` into an entry in the EPT PDPT which means -- map 1GB of host physical memory starting from physical address zero to the guest physical address associated with this entry.
 - The 0x9 nibble maps to the 'accessed' and 'ignored' bits (oops lol these don't matter)
 - The 0x8 nibble maps to the page size bit that indicates this is 1GB mapping
 - The 0x7 nibble maps to the read, write, and 'mode-based execute' (whether ring 0 in the guest can fetch instructions from this memory) bits
 
 Peep the Intel SDM Vol. 3C Section 29.3.2 if you want specifics on the layouts of these entries.
 
-Here is walking the EPT PML4 and installing the malicous PDPT entry in C:
+Here is walking the EPT PML4 and installing the malicious PDPT entry in C:
 ```c
     // read first entry in ept to get the PML4E
     pml4e_value = read_guy(ept_offset);
