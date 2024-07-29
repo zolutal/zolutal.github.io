@@ -176,7 +176,7 @@ So first I enabled the VMX feature by setting the VMXE bit in cr4:
 ```
 
 Next I had to create a valid VMXON region and VMCS, which is done by allocating two pages, setting the `vmcs_revision` value into the start of the page, then executing vmxon and vmptrld with the physical addresses of those pages:
-```
+```c
     vmxon_page = kzalloc(0x1000, GFP_KERNEL);
     vmptrld_page = kzalloc(0x1000, GFP_KERNEL);
 
@@ -193,7 +193,7 @@ My teamate linked me this resource which provides some more specific information
 
 Finally, after doing that setup, we can execute the vmread/vmwrite instructions to hit the vulnerable code as such:
 
-```
+```c
     asm volatile("vmread %[field], %[output]\n\t"
           : [output] "=r" (vmread_value)
           : [field] "r" (vmread_field) : );
@@ -646,4 +646,6 @@ Incredibly this worked first try on remote! :)
 
 ## wrap up
 
-This challenge was super fun and very relevant with Google's KVM CTF starting up not too long ago. It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, and I hope you learned something from reading this! Shoutout to the author [FizzBuzz101](https://www.willsroot.io/) for creating the challenge!
+This challenge was super fun and very relevant with Google's KVM CTF starting up not too long ago.
+It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, I hope you learned something from reading this!
+Shoutout to the author [FizzBuzz101](https://www.willsroot.io/) for creating the challenge!
