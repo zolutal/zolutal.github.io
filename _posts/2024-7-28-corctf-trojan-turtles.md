@@ -425,7 +425,7 @@ If you don't understand those, then [learn how those work first](https://zolutal
 - First the pagetables in the guest are walked as normal to convert the guest virtual address to a guest physical address
 - Next, the EPTP is used to determine the address of the physical address of the EPT in the host, you can think of this as the cr3 of EPT
 - Then a pagewalk starts on the EPT page tables converting the guest physical address to a host physical address
-    - The procedure for this pagewalk is very similar to a normal pagewalk, you calculate the offsets into each level of the pagetable in the same way you do for linear to physical address conversion (e.g. shift left by 12, 9-bit bitmasks, etc.)
+    - The procedure for this pagewalk is very similar to a normal pagewalk, you calculate the offsets into each level of the pagetable in the same way you do for linear to physical address conversion (e.g. shift right by 12, 9-bit bitmasks, etc.)
 
 Also similar to normal paging there are huge pages in EPT!
 So the plan was to construct an EPT 1GB Huge Page mapping, which needs to be in the PDPT (3rd level).
