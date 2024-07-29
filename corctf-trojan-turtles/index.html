@@ -736,7 +736,7 @@ If you don’t understand those, then <a href="https://zolutal.github.io/underst
   <li>Next, the EPTP is used to determine the address of the physical address of the EPT in the host, you can think of this as the cr3 of EPT</li>
   <li>Then a pagewalk starts on the EPT page tables converting the guest physical address to a host physical address
     <ul>
-      <li>The procedure for this pagewalk is very similar to a normal pagewalk, you calculate the offsets into each level of the pagetable in the same way you do for linear to physical address conversion (e.g. shift left by 12, 9-bit bitmasks, etc.)</li>
+      <li>The procedure for this pagewalk is very similar to a normal pagewalk, you calculate the offsets into each level of the pagetable in the same way you do for linear to physical address conversion (e.g. shift right by 12, 9-bit bitmasks, etc.)</li>
     </ul>
   </li>
 </ul>
