@@ -45,8 +45,8 @@ dist:
 [linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb](/assets/corctf-trojan-turtles/dist/linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb)
 [linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb](/assets/corctf-trojan-turtles/dist/linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb)
 
-exploit (kernel module):
-[exploit.c](/assets/corctf-trojan-turtles/dist/exploit.c)
+exploit:
+[exploit.c](/assets/corctf-trojan-turtles/exploit.c)
 
 ## Background
 
