@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2024-07-29T05:01:01+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF 2024: trojan-turtles writeup</title><link href="https://zolutal.github.io/corctf-trojan-turtles/" rel="alternate" type="text/html" title="corCTF 2024: trojan-turtles writeup" /><published>2024-07-28T00:00:00+00:00</published><updated>2024-07-28T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-trojan-turtles</id><content type="html" xml:base="https://zolutal.github.io/corctf-trojan-turtles/"><![CDATA[<p>This year I played corCTF with Shellphish, and we did pretty well – placing 6th!
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2024-07-29T05:07:23+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Justin Miller</name></author><entry><title type="html">corCTF 2024: trojan-turtles writeup</title><link href="https://zolutal.github.io/corctf-trojan-turtles/" rel="alternate" type="text/html" title="corCTF 2024: trojan-turtles writeup" /><published>2024-07-28T00:00:00+00:00</published><updated>2024-07-28T00:00:00+00:00</updated><id>https://zolutal.github.io/corctf-trojan-turtles</id><content type="html" xml:base="https://zolutal.github.io/corctf-trojan-turtles/"><![CDATA[<p>This year I played corCTF with Shellphish, and we did pretty well – placing 6th!
 I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.</p>
 
 <p>This will be a writeup for ‘trojan-turtles’, a challenge which involved exploiting a backdoored KVM kernel module from a guest VM to read the flag located on the host.</p>
@@ -158,30 +158,30 @@ The vmread and vmwrite instructions are for interacting with the “Virtual-Mach
 </code></pre></div></div>
 
 <p>Next I had to create a valid VMXON region and VMCS, which is done by allocating two pages, setting the <code class="language-plaintext highlighter-rouge">vmcs_revision</code> value into the start of the page, then executing vmxon and vmptrld with the physical addresses of those pages:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    vmxon_page = kzalloc(0x1000, GFP_KERNEL);
-    vmptrld_page = kzalloc(0x1000, GFP_KERNEL);
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">vmxon_page</span> <span class="o">=</span> <span class="n">kzalloc</span><span class="p">(</span><span class="mh">0x1000</span><span class="p">,</span> <span class="n">GFP_KERNEL</span><span class="p">);</span>
+    <span class="n">vmptrld_page</span> <span class="o">=</span> <span class="n">kzalloc</span><span class="p">(</span><span class="mh">0x1000</span><span class="p">,</span> <span class="n">GFP_KERNEL</span><span class="p">);</span>
 
-    vmxon_page_pa = virt_to_phys(vmxon_page);
-    vmptrld_page_pa = virt_to_phys(vmptrld_page);
+    <span class="n">vmxon_page_pa</span> <span class="o">=</span> <span class="n">virt_to_phys</span><span class="p">(</span><span class="n">vmxon_page</span><span class="p">);</span>
+    <span class="n">vmptrld_page_pa</span> <span class="o">=</span> <span class="n">virt_to_phys</span><span class="p">(</span><span class="n">vmptrld_page</span><span class="p">);</span>
 
-    *(uint32_t *)(vmxon_page) = vmcs_revision();
-    *(uint32_t *)(vmptrld_page) = vmcs_revision();
+    <span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span> <span class="o">*</span><span class="p">)(</span><span class="n">vmxon_page</span><span class="p">)</span> <span class="o">=</span> <span class="n">vmcs_revision</span><span class="p">();</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span> <span class="o">*</span><span class="p">)(</span><span class="n">vmptrld_page</span><span class="p">)</span> <span class="o">=</span> <span class="n">vmcs_revision</span><span class="p">();</span>
 
-    res = vmxon(vmxon_page_pa);
-    res = vmptrld(vmptrld_page_pa);
+    <span class="n">res</span> <span class="o">=</span> <span class="n">vmxon</span><span class="p">(</span><span class="n">vmxon_page_pa</span><span class="p">);</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">vmptrld</span><span class="p">(</span><span class="n">vmptrld_page_pa</span><span class="p">);</span>
 </code></pre></div></div>
 <p>My teamate linked me this resource which provides some more specific information on this stuff and was extremely helpful: <a href="https://wiki.osdev.org/VMX">https://wiki.osdev.org/VMX</a></p>
 
 <p>Finally, after doing that setup, we can execute the vmread/vmwrite instructions to hit the vulnerable code as such:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    asm volatile("vmread %[field], %[output]\n\t"
-          : [output] "=r" (vmread_value)
-          : [field] "r" (vmread_field) : );
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">asm</span> <span class="nf">volatile</span><span class="p">(</span><span class="s">"vmread %[field], %[output]</span><span class="se">\n\t</span><span class="s">"</span>
+          <span class="o">:</span> <span class="p">[</span><span class="n">output</span><span class="p">]</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">vmread_value</span><span class="p">)</span>
+          <span class="o">:</span> <span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmread_field</span><span class="p">)</span> <span class="o">:</span> <span class="p">);</span>
 
-    asm volatile("vmwrite %[value], %[field]\n\t"
-          :
-          : [field] "r" (vmwrite_field),
-            [value] "r" (vmwrite_value) : );
+    <span class="n">asm</span> <span class="nf">volatile</span><span class="p">(</span><span class="s">"vmwrite %[value], %[field]</span><span class="se">\n\t</span><span class="s">"</span>
+          <span class="o">:</span>
+          <span class="o">:</span> <span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmwrite_field</span><span class="p">),</span>
+            <span class="p">[</span><span class="n">value</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmwrite_value</span><span class="p">)</span> <span class="o">:</span> <span class="p">);</span>
 </code></pre></div></div>
 
 <h2 id="exploitation">Exploitation</h2>
@@ -623,7 +623,9 @@ The entry was installed at the 6th entry in the EPT PDPT which associates it wit
 
 <h2 id="wrap-up">wrap up</h2>
 
-<p>This challenge was super fun and very relevant with Google’s KVM CTF starting up not too long ago. It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, and I hope you learned something from reading this! Shoutout to the author <a href="https://www.willsroot.io/">FizzBuzz101</a> for creating the challenge!</p>]]></content><author><name>Justin Miller</name></author><category term="Exploitation" /><category term="Sidechannels" /><category term="x86_64" /><category term="Architecture" /><category term="Linux" /><category term="CTF Writeup" /><summary type="html"><![CDATA[This year I played corCTF with Shellphish, and we did pretty well – placing 6th! I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.]]></summary></entry><entry><title type="html">ASLRn’t: How memory alignment broke library ASLR</title><link href="https://zolutal.github.io/aslrnt/" rel="alternate" type="text/html" title="ASLRn’t: How memory alignment broke library ASLR" /><published>2024-01-08T00:00:00+00:00</published><updated>2024-01-08T00:00:00+00:00</updated><id>https://zolutal.github.io/aslrnt</id><content type="html" xml:base="https://zolutal.github.io/aslrnt/"><![CDATA[<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
+<p>This challenge was super fun and very relevant with Google’s KVM CTF starting up not too long ago.
+It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, I hope you learned something from reading this!
+Shoutout to the author <a href="https://www.willsroot.io/">FizzBuzz101</a> for creating the challenge!</p>]]></content><author><name>Justin Miller</name></author><category term="Exploitation" /><category term="Sidechannels" /><category term="x86_64" /><category term="Architecture" /><category term="Linux" /><category term="CTF Writeup" /><summary type="html"><![CDATA[This year I played corCTF with Shellphish, and we did pretty well – placing 6th! I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.]]></summary></entry><entry><title type="html">ASLRn’t: How memory alignment broke library ASLR</title><link href="https://zolutal.github.io/aslrnt/" rel="alternate" type="text/html" title="ASLRn’t: How memory alignment broke library ASLR" /><published>2024-01-08T00:00:00+00:00</published><updated>2024-01-08T00:00:00+00:00</updated><id>https://zolutal.github.io/aslrnt</id><content type="html" xml:base="https://zolutal.github.io/aslrnt/"><![CDATA[<p>As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is <em>literally</em> broken for 32-bit libraries of at least 2MB in size, on certain filesystems. Also, ASLR’s entropy on 64-bit libraries that are at least 2MB is significantly reduced, 28 bits -&gt; 19 bits, on certain filesystems.</p>
 
 <p>Then what are these “certain filesystems”? Those would be: ext4, ext2, btrfs, xfs, and fuse. So, some of the most widely used filesystems.</p>
 

@@ -487,30 +487,30 @@ The vmread and vmwrite instructions are for interacting with the “Virtual-Mach
 </code></pre></div></div>
 
 <p>Next I had to create a valid VMXON region and VMCS, which is done by allocating two pages, setting the <code class="language-plaintext highlighter-rouge">vmcs_revision</code> value into the start of the page, then executing vmxon and vmptrld with the physical addresses of those pages:</p>
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    vmxon_page = kzalloc(0x1000, GFP_KERNEL);
-    vmptrld_page = kzalloc(0x1000, GFP_KERNEL);
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">vmxon_page</span> <span class="o">=</span> <span class="n">kzalloc</span><span class="p">(</span><span class="mh">0x1000</span><span class="p">,</span> <span class="n">GFP_KERNEL</span><span class="p">);</span>
+    <span class="n">vmptrld_page</span> <span class="o">=</span> <span class="n">kzalloc</span><span class="p">(</span><span class="mh">0x1000</span><span class="p">,</span> <span class="n">GFP_KERNEL</span><span class="p">);</span>
 
-    vmxon_page_pa = virt_to_phys(vmxon_page);
-    vmptrld_page_pa = virt_to_phys(vmptrld_page);
+    <span class="n">vmxon_page_pa</span> <span class="o">=</span> <span class="n">virt_to_phys</span><span class="p">(</span><span class="n">vmxon_page</span><span class="p">);</span>
+    <span class="n">vmptrld_page_pa</span> <span class="o">=</span> <span class="n">virt_to_phys</span><span class="p">(</span><span class="n">vmptrld_page</span><span class="p">);</span>
 
-    *(uint32_t *)(vmxon_page) = vmcs_revision();
-    *(uint32_t *)(vmptrld_page) = vmcs_revision();
+    <span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span> <span class="o">*</span><span class="p">)(</span><span class="n">vmxon_page</span><span class="p">)</span> <span class="o">=</span> <span class="n">vmcs_revision</span><span class="p">();</span>
+    <span class="o">*</span><span class="p">(</span><span class="kt">uint32_t</span> <span class="o">*</span><span class="p">)(</span><span class="n">vmptrld_page</span><span class="p">)</span> <span class="o">=</span> <span class="n">vmcs_revision</span><span class="p">();</span>
 
-    res = vmxon(vmxon_page_pa);
-    res = vmptrld(vmptrld_page_pa);
+    <span class="n">res</span> <span class="o">=</span> <span class="n">vmxon</span><span class="p">(</span><span class="n">vmxon_page_pa</span><span class="p">);</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">vmptrld</span><span class="p">(</span><span class="n">vmptrld_page_pa</span><span class="p">);</span>
 </code></pre></div></div>
 <p>My teamate linked me this resource which provides some more specific information on this stuff and was extremely helpful: <a href="https://wiki.osdev.org/VMX">https://wiki.osdev.org/VMX</a></p>
 
 <p>Finally, after doing that setup, we can execute the vmread/vmwrite instructions to hit the vulnerable code as such:</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    asm volatile("vmread %[field], %[output]\n\t"
-          : [output] "=r" (vmread_value)
-          : [field] "r" (vmread_field) : );
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">asm</span> <span class="nf">volatile</span><span class="p">(</span><span class="s">"vmread %[field], %[output]</span><span class="se">\n\t</span><span class="s">"</span>
+          <span class="o">:</span> <span class="p">[</span><span class="n">output</span><span class="p">]</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">vmread_value</span><span class="p">)</span>
+          <span class="o">:</span> <span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmread_field</span><span class="p">)</span> <span class="o">:</span> <span class="p">);</span>
 
-    asm volatile("vmwrite %[value], %[field]\n\t"
-          :
-          : [field] "r" (vmwrite_field),
-            [value] "r" (vmwrite_value) : );
+    <span class="n">asm</span> <span class="nf">volatile</span><span class="p">(</span><span class="s">"vmwrite %[value], %[field]</span><span class="se">\n\t</span><span class="s">"</span>
+          <span class="o">:</span>
+          <span class="o">:</span> <span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmwrite_field</span><span class="p">),</span>
+            <span class="p">[</span><span class="n">value</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmwrite_value</span><span class="p">)</span> <span class="o">:</span> <span class="p">);</span>
 </code></pre></div></div>
 
 <h2 id="exploitation">Exploitation</h2>
@@ -952,7 +952,9 @@ The entry was installed at the 6th entry in the EPT PDPT which associates it wit
 
 <h2 id="wrap-up">wrap up</h2>
 
-<p>This challenge was super fun and very relevant with Google’s KVM CTF starting up not too long ago. It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, and I hope you learned something from reading this! Shoutout to the author <a href="https://www.willsroot.io/">FizzBuzz101</a> for creating the challenge!</p>
+<p>This challenge was super fun and very relevant with Google’s KVM CTF starting up not too long ago.
+It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, I hope you learned something from reading this!
+Shoutout to the author <a href="https://www.willsroot.io/">FizzBuzz101</a> for creating the challenge!</p>
 
         
       </section>
