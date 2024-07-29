@@ -208,7 +208,7 @@ Finally, after doing that setup, we can execute the vmread/vmwrite instructions 
 The exploitation for this challenge was really fun, I think the most clear path for exploitation would have been to create a ROP chain in the host's address space, which reads the flag into the guest's address space, and cause a stack pivot to it.
 But my teamate suggested a path that sounded more interesting: messing with Extended Page Table (EPT) feature to map the host's address space into the guest.
 
-It sounded like a approach to try so I went for it, but in practice I knew nothing about EPT and getting to the point where I could even do that was pretty challenging.
+It sounded like a fun approach to try so I went for it, but I knew nothing about EPT and getting to the point where I could even interact with EPT was pretty challenging.
 
 ### the goal
 
