@@ -15,9 +15,11 @@ tags:
 This year I played corCTF with Shellphish, and we did pretty well -- placing 6th!
 I worked on two challenges: 'trojan-turtles' and 'its-just-a-dos-bug-bro', in the end we solved both of them and both only had two solves by the end.
 
-This will be a writeup for 'trojan-turtles', a challenge which involved exploiting a backdoored KVM kernel module from a guest VM to read the flag located on the host.
+This will be a writeup for 'trojan-turtles', a challenge which involved exploiting a backdoored KVM kernel module from a guest VM to read the flag located on the parent VM.
 
-Here is the challenge description for some more context:
+NOTE: In this challenge we are given code execution in an L2 guest (guest inside another guest). When I refer to the 'host' in this writeup I'm referencing the parent VM of the one we are given code execution which has the vulnerability inserted in it, really it is the L1 guest but I think it is easier to just think of it as the host in the context of the challenge since the real host VM is transparent to us.
+
+Here is the challenge description:
 ```
 A mysterious person who goes by Tia Jan recently replaced our nested hypervisor's Intel KVM driver with a new driver.
 Can you take a look at this and see if our systems have been compromised?
@@ -33,17 +35,15 @@ You can retrieve the necessary headers from the following links:
 You can download the 6.9.0 kernel source at https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.9.tar.xz
 ```
 
-Here are the provided files:
-
 dist:
-[bzImage](/assets/corctf-trojan-turtles/dist/bzImage)
-[chall.qcow2](/assets/corctf-trojan-turtles/dist/chall.qcow2)
-[kconfig](/assets/corctf-trojan-turtles/dist/kconfig)
-[kvm-intel-original.ko](/assets/corctf-trojan-turtles/dist/kvm-intel-original.ko)
-[kvm-intel-new.ko](/assets/corctf-trojan-turtles/dist/kvm-intel-new.ko)
-[run.sh](/assets/corctf-trojan-turtles/dist/run.sh)
-[linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb](/assets/corctf-trojan-turtles/dist/linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb)
-[linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb](/assets/corctf-trojan-turtles/dist/linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb)
+- [bzImage](/assets/corctf-trojan-turtles/dist/bzImage)
+- [chall.qcow2](/assets/corctf-trojan-turtles/dist/chall.qcow2)
+- [kconfig](/assets/corctf-trojan-turtles/dist/kconfig)
+- [kvm-intel-original.ko](/assets/corctf-trojan-turtles/dist/kvm-intel-original.ko)
+- [kvm-intel-new.ko](/assets/corctf-trojan-turtles/dist/kvm-intel-new.ko)
+- [run.sh](/assets/corctf-trojan-turtles/dist/run.sh)
+- [linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb](/assets/corctf-trojan-turtles/dist/linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb)
+- [linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb](/assets/corctf-trojan-turtles/dist/linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb)
 
 exploit:
 [exploit.c](/assets/corctf-trojan-turtles/exploit.c)
@@ -641,7 +641,6 @@ Incredibly this worked first try on remote! :)
 [  127.018707] found handle_vmread page at: ffff8800028fd000
 [  127.018708] handle_vmread at: ffff8800028fd4d0
 [  127.053129] flag: corctf{KvM_3xpl01t5_@r3_5ucH_a_p@1n_1n_Th3_a55!!!}
-[  127.053129]
 ```
 
 ## wrap up
