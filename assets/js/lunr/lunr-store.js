@@ -22,4 +22,10 @@ var store = [{
         "tags": ["Linux","ASLR","x86_64"],
         "url": "/aslrnt/",
         "teaser": null
+      },{
+        "title": "corCTF 2024: trojan-turtles writeup",
+        "excerpt":"This year I played corCTF with Shellphish, and we did pretty well – placing 6th! I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, in the end we solved both of them and both only had two solves by the end. This will be a writeup for ‘trojan-turtles’, a challenge which...","categories": [],
+        "tags": ["Exploitation","Sidechannels","x86_64","Architecture","Linux","CTF Writeup"],
+        "url": "/corctf-trojan-turtles/",
+        "teaser": null
       }]
