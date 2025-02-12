@@ -18,7 +18,7 @@ locale                   : "en-US"
 title                    : "zolutal's blog"
 title_separator          : "-"
 subtitle                 : # site tagline that appears below site title in masthead
-name                     : "Justin Miller"
+name                     : "zolutal"
 description              : "systems hacking"
 url                      : "https://zolutal.github.io" # the base hostname & protocol for your site e.g. "https://zolutal.github.io"
 baseurl                  : # the subpath of your site, e.g. "/blog"
@@ -37,7 +37,7 @@ atom_feed:
 
 # Site Author
 author:
-  name             : "Justin Miller"
+  name             : "zolutal"
   avatar           : # path of avatar image, e.g. "/assets/images/bio-photo.jpg"
   bio              : "systems hacking"
   location         : "Arizona"
