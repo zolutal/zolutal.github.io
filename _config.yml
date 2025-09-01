@@ -30,14 +30,14 @@ words_per_minute         : 200
 
 # Social Sharing
 twitter:
-  username         : zolutal
+  username         : please-stop-using-fucking-twitter
 
 atom_feed:
   hide             : true
 
 # Site Author
 author:
-  name             : "zolutal"
+  name             : "Jennifer Miller"
   avatar           : # path of avatar image, e.g. "/assets/images/bio-photo.jpg"
   bio              : "systems hacking"
   location         : "Arizona"
@@ -49,19 +49,20 @@ author:
     - label: "Website"
       icon: "fas fa-fw fa-link"
       # url: "https://your-website.com"
-    - label: "Twitter"
-      icon: "fab fa-fw fa-twitter-square"
-      url: "https://twitter.com/zolutal"
     - label: "GitHub"
       icon: "fab fa-fw fa-github"
       url: "https://github.com/zolutal"
+    - label: "BlueSky"
+      url: "https://bsky.app/profile/zolutal.bsky.social"
 
 # Site Footer
 footer:
   links:
+    - label: "BlueSky"
+      url: "https://bsky.app/profile/zolutal.bsky.social"
     - label: "Twitter"
       icon: "fab fa-fw fa-twitter-square"
-      url: https://twitter.com/zolutal
+      url: https://twitter.com/please-stop-using-fucking-twitter
     - label: "Facebook"
       icon: "fab fa-fw fa-facebook-square"
       # url:
