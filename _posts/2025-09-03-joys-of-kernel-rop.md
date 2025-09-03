@@ -200,7 +200,7 @@ And the same is true of retpoline thunks:
 
 Its just a normal jump now!
 
-Additionaly, the case earlier with the unaligned instruction inside the ret thunk has also been addressed, because the return is back to being a single-byte instruction:
+Additionally, the case earlier with the unaligned instruction inside the ret thunk has also been addressed, because the return is back to being a single-byte instruction:
 
 ```
 Before:
@@ -256,7 +256,7 @@ I think there are a few options to address this problem:
 - Allow the user to provide a CPUID dump or `/proc/cpuinfo` content from the target kernel
 - Allow the user to specify a CPU model and have a database of what features common CPUs support
 - Provide an option that filters out any gadgets that overlap with any of the instructions in `.altinstructions` to remove any false positives
-- Provide a reasonable default configuration of alternatives to apply, e.g., I think we can assume that most CPUs support SMEP/SMAP related instructions these days
+- Provide a reasonable default configuration of alternatives to apply, e.g., I think we can assume that most CPUs support SMAP related instructions these days
 
 While I do want to support some of these in kropr eventually, none of these options are currently implemented. I don't think alternatives have a major impact on the number of false positives/negatives, at least not anywhere near as bad as the other problems I discussed. All of these replacements are related to the CPU architecture, which means there aren't *that* many of them and the replacements *mostly* add instructions that are not typically used in ROP chains.
 
