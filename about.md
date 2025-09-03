@@ -4,7 +4,7 @@ title:  "about"
 classes: wide
 ---
 
-hi! I'm a phd student researching systems security. I'm currently captain of [shellphish](https://shellphish.net), a hacking team who I play ctfs with. I mostly focus on ctf challenges related to binary/systems exploitation. I'm hoping to use this blog for ctf writeups, side-projects, deconstructing cool research, and whatever else I happen to feel like writing about.
+hi! I'm a phd student researching systems security. I'm currently captain of [Shellphish](https://shellphish.net), a hacking team who I play ctfs with. I mostly focus on ctf challenges related to binary/systems exploitation. I'm hoping to use this blog for ctf writeups, side-projects, deconstructing cool research, and whatever else I happen to feel like writing about.
 
 # cool stuff I've done
 
