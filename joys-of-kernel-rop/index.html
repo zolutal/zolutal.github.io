@@ -1,0 +1,896 @@
+<!doctype html>
+<!--
+  Minimal Mistakes Jekyll Theme 4.24.0 by Michael Rose
+  Copyright 2013-2020 Michael Rose - mademistakes.com | @mmistakes
+  Free for personal and commercial use under the MIT license
+  https://github.com/mmistakes/minimal-mistakes/blob/master/LICENSE
+-->
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8">
+
+<!-- begin _includes/seo.html --><title>The Joys of Linux Kernel ROP Gadget Scanning - zolutal’s blog</title>
+<meta name="description" content="Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run ROPgadget --binary vmlinux on it! In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due to false negatives. This is a result of a few quirks of Linux kernel images, some of which make solving the false positive/negative problems a bit difficult.">
+
+
+  <meta name="author" content="Jennifer Miller">
+  
+  <meta property="article:author" content="Jennifer Miller">
+  
+
+
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:site_name" content="zolutal's blog">
+<meta property="og:title" content="The Joys of Linux Kernel ROP Gadget Scanning">
+<meta property="og:url" content="https://zolutal.github.io/joys-of-kernel-rop/">
+
+
+  <meta property="og:description" content="Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run ROPgadget --binary vmlinux on it! In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due to false negatives. This is a result of a few quirks of Linux kernel images, some of which make solving the false positive/negative problems a bit difficult.">
+
+
+
+
+
+  <meta name="twitter:site" content="@please-stop-using-fucking-twitter">
+  <meta name="twitter:title" content="The Joys of Linux Kernel ROP Gadget Scanning">
+  <meta name="twitter:description" content="Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run ROPgadget --binary vmlinux on it! In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due to false negatives. This is a result of a few quirks of Linux kernel images, some of which make solving the false positive/negative problems a bit difficult.">
+  <meta name="twitter:url" content="https://zolutal.github.io/joys-of-kernel-rop/">
+
+  
+    <meta name="twitter:card" content="summary">
+    
+  
+
+  
+
+
+
+  <meta property="article:published_time" content="2025-09-03T00:00:00+00:00">
+
+
+
+
+
+
+<link rel="canonical" href="https://zolutal.github.io/joys-of-kernel-rop/">
+
+
+
+
+<script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    
+      "@type": "Person",
+      "name": "zolutal",
+      "url": "https://zolutal.github.io/"
+    
+  }
+</script>
+
+
+
+
+
+
+
+<!-- end _includes/seo.html -->
+
+
+
+
+<!-- https://t.co/dKP3o1e -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script>
+  document.documentElement.className = document.documentElement.className.replace(/\bno-js\b/g, '') + ' js ';
+</script>
+
+<!-- For all browsers -->
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5/css/all.min.css"></noscript>
+
+
+
+    <!-- start custom head snippets -->
+
+<!-- insert favicons. use https://realfavicongenerator.net/ -->
+
+<!-- end custom head snippets -->
+
+  </head>
+
+  <body class="layout--single wide">
+    <nav class="skip-links">
+  <ul>
+    <li><a href="#site-nav" class="screen-reader-shortcut">Skip to primary navigation</a></li>
+    <li><a href="#main" class="screen-reader-shortcut">Skip to content</a></li>
+    <li><a href="#footer" class="screen-reader-shortcut">Skip to footer</a></li>
+  </ul>
+</nav>
+
+    <!--[if lt IE 9]>
+<div class="notice--danger align-center" style="margin: 0;">You are using an <strong>outdated</strong> browser. Please <a href="https://browsehappy.com/">upgrade your browser</a> to improve your experience.</div>
+<![endif]-->
+
+    
+
+<div class="masthead">
+  <div class="masthead__inner-wrap">
+    <div class="masthead__menu">
+      <nav id="site-nav" class="greedy-nav">
+        
+        <a class="site-title" href="/">
+          zolutal's blog
+          
+        </a>
+        <ul class="visible-links"><li class="masthead__menu-item">
+              <a href="/about">about</a>
+            </li></ul>
+        
+        <button class="greedy-nav__toggle hidden" type="button">
+          <span class="visually-hidden">Toggle menu</span>
+          <div class="navicon"></div>
+        </button>
+        <ul class="hidden-links hidden"></ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+
+    <div class="initial-content">
+      
+
+
+  
+    
+
+
+
+<nav class="breadcrumbs">
+  <ol itemscope itemtype="https://schema.org/BreadcrumbList">
+    
+    
+    
+      
+        <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+          <a href="https://zolutal.github.io/" itemprop="item"><span itemprop="name">Home</span></a>
+          <meta itemprop="position" content="1" />
+        </li>
+        <span class="sep">/</span>
+      
+      
+        <li class="current">The Joys of Linux Kernel ROP Gadget Scanning</li>
+      
+    
+  </ol>
+</nav>
+
+  
+
+
+<div id="main" role="main">
+  
+  <div class="sidebar sticky">
+  
+
+
+<div itemscope itemtype="https://schema.org/Person">
+
+  
+
+  <div class="author__content">
+    
+      <h3 class="author__name" itemprop="name">Jennifer Miller</h3>
+    
+    
+      <div class="author__bio" itemprop="description">
+        <p>systems hacking</p>
+
+      </div>
+    
+  </div>
+
+  <div class="author__urls-wrapper">
+    <button class="btn btn--inverse">Follow</button>
+    <ul class="author__urls social-icons">
+      
+        <li itemprop="homeLocation" itemscope itemtype="https://schema.org/Place">
+          <i class="fas fa-fw fa-map-marker-alt" aria-hidden="true"></i> <span itemprop="name">Arizona</span>
+        </li>
+      
+
+      
+        
+          
+        
+          
+        
+          
+            <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i><span class="label">GitHub</span></a></li>
+          
+        
+          
+            <li><a href="https://bsky.app/profile/zolutal.bsky.social" rel="nofollow noopener noreferrer"><i class="fas fa-link" aria-hidden="true"></i><span class="label">BlueSky</span></a></li>
+          
+        
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      
+
+      <!--
+  <li>
+    <a href="http://link-to-whatever-social-network.com/user/" itemprop="sameAs" rel="nofollow noopener noreferrer">
+      <i class="fas fa-fw" aria-hidden="true"></i> Custom Social Profile Link
+    </a>
+  </li>
+-->
+    </ul>
+  </div>
+</div>
+
+  
+  </div>
+
+
+
+  <article class="page" itemscope itemtype="https://schema.org/CreativeWork">
+    <meta itemprop="headline" content="The Joys of Linux Kernel ROP Gadget Scanning">
+    <meta itemprop="description" content="Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run ROPgadget --binary vmlinux on it!In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due to false negatives.This is a result of a few quirks of Linux kernel images, some of which make solving the false positive/negative problems a bit difficult.">
+    <meta itemprop="datePublished" content="2025-09-03T00:00:00+00:00">
+    
+
+    <div class="page__inner-wrap">
+      
+        <header>
+          <h1 id="page-title" class="page__title" itemprop="headline">The Joys of Linux Kernel ROP Gadget Scanning
+</h1>
+          
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2025-09-03T00:00:00+00:00">September 3, 2025</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-clock" aria-hidden="true"></i>
+        
+          12 minute read
+        
+      </span>
+    
+  </p>
+
+
+        </header>
+      
+
+      <section class="page__content" itemprop="text">
+        
+        <p>Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run <code class="language-plaintext highlighter-rouge">ROPgadget --binary vmlinux</code> on it!
+In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due to false negatives.
+This is a result of a few quirks of Linux kernel images, some of which make solving the false positive/negative problems a bit difficult.</p>
+
+<p>I want to use this post to describe some of the complexity behind static ROP gadget scanning in modern Linux kernel images and discuss how I handle them in my fork of <a href="https://github.com/Ben-Lichtman/ropr">ropr</a> called <a href="https://github.com/zolutal/kropr">kropr</a>.</p>
+
+<h1 id="the-executable-section-problem">The Executable Section Problem</h1>
+
+<p>Lets start with probably the most well known problem leading to false positives, the fact that generic ROP gadget scanners do not account for some sections of the kernel being only executable at boot time.</p>
+
+<p>Here are all the executable regions in a Ubuntu kernel image (output from readelf):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Section Headers:
+  [Nr] Name                  Type             Address           Offset
+       Size                  EntSize          Flags  Link  Info  Align
+  [ 1] .text                 PROGBITS         ffffffff81000000  00001000
+       0000000001600000      0000000000000000  AX       0     0     4096
+  [21] .init.text            PROGBITS         ffffffff838ae000  02850000
+       00000000000c8725      0000000000000000  AX       0     0     16
+  [22] .altinstr_aux         PROGBITS         ffffffff83976725  02918725
+       00000000000032b2      0000000000000000  AX       0     0     1
+  [29] .altinstr_replacement PROGBITS         ffffffff83d4728a  02ce9286
+       0000000000008dcd      0000000000000000  AX       0     0     1
+  [31] .exit.text            PROGBITS         ffffffff83d50090  02cf2090
+       00000000000046a5      0000000000000000  AX       0     0     16
+</code></pre></div></div>
+
+<p>This vmlinux contains five executable sections, all of which in a normal binary would be viable locations to find ROP gadgets. However, for the Linux kernel, this is not the case.</p>
+
+<p>We can see this by booting the kernel and looking at the output from the <a href="https://github.com/martinradev/gdb-pt-dump">gdb-pt-dump</a> utility in gdb, which dumps the page tables along with their permissions/attributes:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; pt
+             Address :     Length   Permissions                 Region
+...
+  0xffffffff81000000 :  0x1600000 | W:0 X:1 S:1 UC:0 WB:1 G:1 | kernel
+  0xffffffff82600000 :   0xda0000 | W:0 X:0 S:1 UC:0 WB:1 G:1 | kernel
+  0xffffffff833a0000 :   0x9c5000 | W:1 X:0 S:1 UC:0 WB:1 G:1 | kernel
+  0xffffffff83d65000 :     0x1000 | W:0 X:0 S:1 UC:0 WB:1 G:1 | kernel
+  0xffffffff83d66000 :   0x69a000 | W:1 X:0 S:1 UC:0 WB:1 G:1 | kernel
+...
+</code></pre></div></div>
+
+<p>The only executable region here matches with what we saw in the <code class="language-plaintext highlighter-rouge">readelf</code> output previously for the <code class="language-plaintext highlighter-rouge">.text</code> section. As such, the <code class="language-plaintext highlighter-rouge">.text</code> section is the only one we should care about when scanning for gadgets.</p>
+
+<p>In kropr, I address this source of false positives by just filtering for the <code class="language-plaintext highlighter-rouge">.text</code> section when parsing the kernel image.</p>
+
+<h1 id="the-thunk-problem">The Thunk Problem</h1>
+
+<p>In response to speculative execution vulnerabilities, Linux had to do some strange things to control flow instructions to mitigate particular attacks.
+One of these measures was to turn all returns and all calls/jumps into calls/jumps to thunks.</p>
+
+<p>Here is an example of what this actually looks like:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; disas free_pipe_info
+Dump of assembler code for function free_pipe_info:
+   0xffffffff814fc470 &lt;+0&gt;:	nop    DWORD PTR [rax+rax*1+0x0]
+   0xffffffff814fc475 &lt;+5&gt;:	push   rbp
+   0xffffffff814fc476 &lt;+6&gt;:	mov    rbp,rsp
+   0xffffffff814fc479 &lt;+9&gt;:	push   r12
+   0xffffffff814fc47b &lt;+11&gt;:	push   rbx
+...
+   0xffffffff814fc4df &lt;+111&gt;:	mov    rax,QWORD PTR [rax+0x8]
+   0xffffffff814fc4e3 &lt;+115&gt;:	call   0xffffffff8222fcc0 &lt;__x86_indirect_thunk_rax&gt;
+...
+   0xffffffff814fc52a &lt;+186&gt;:	pop    rbx
+   0xffffffff814fc52b &lt;+187&gt;:	pop    r12
+   0xffffffff814fc52d &lt;+189&gt;:	pop    rbp
+   0xffffffff814fc52e &lt;+190&gt;:	xor    eax,eax
+   0xffffffff814fc530 &lt;+192&gt;:	xor    edx,edx
+   0xffffffff814fc532 &lt;+194&gt;:	xor    esi,esi
+   0xffffffff814fc534 &lt;+196&gt;:	xor    edi,edi
+   0xffffffff814fc536 &lt;+198&gt;:	jmp    0xffffffff82230460 &lt;__x86_return_thunk&gt;
+</code></pre></div></div>
+
+<p>In the above code, where you would expect to see an indirect call we instead see a call to <code class="language-plaintext highlighter-rouge">__x86_indirect_thunk_rax</code>, and where you would expect to see a <code class="language-plaintext highlighter-rouge">ret</code> instruction at the end of the function we instead see a jump to <code class="language-plaintext highlighter-rouge">__x86_return_thunk</code>.</p>
+
+<p>These thunks are actually due to mitigations against two different microarchitectural vulnerabilities. One of which is Spectre V2, which can be mitigated via <a href="https://security.googleblog.com/2018/01/more-details-about-mitigations-for-cpu_4.html">retpolines</a>. This is the mitigation that adds <code class="language-plaintext highlighter-rouge">__x86_indirect_thunk_&lt;register&gt;</code> calls to the code in place of the expected <code class="language-plaintext highlighter-rouge">call &lt;register&gt;</code> instructions. The other vulnerability is <a href="https://comsec.ethz.ch/research/microarch/retbleed/">Retbleed</a>, which can be mitgated via a jmp2ret (more details can be found in the retbleed paper), which is the mitigation that adds <code class="language-plaintext highlighter-rouge">__x86_return_thunk</code> jumps in place of return instructions.</p>
+
+<p>So, how do these thunks affect ROP gadget scanning? Well, they actually cause some pretty major problems…</p>
+
+<h2 id="false-negatives-from-thunks">False Negatives From Thunks</h2>
+
+<p>Here is an example of some output from kropr, ropr, and ROPgadget:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──(jmill@ubun)-[~]
+└─$ kropr --patch-rets=false --patch-retpolines=false ./ubuntu-vmlinux | grep 0xffffffff8191f11c
+0xffffffff8191f11c: pop rdi; jmp 0xffffffff82230460 &lt;__x86_return_thunk&gt;;
+
+==&gt; Found 175774 gadgets in 1.579 seconds
+
+┌──(jmill@ubun)-[~]
+└─$ ropr ./ubuntu-vmlinux | grep 0xffffffff8191f11c
+
+==&gt; Found 456762 gadgets in 2.583 seconds
+
+┌──(jmill@ubun)-[~]
+└─$ ROPgadget --binary ./ubuntu-vmlinux | grep 0xffffffff8191f11c
+0xffffffff8191f11c : pop rdi ; jmp 0xffffffff82230460
+</code></pre></div></div>
+
+<p>( ignore the kropr flags for now, we’ll get to those later )</p>
+
+<p>You can see there is a <code class="language-plaintext highlighter-rouge">pop rdi; ret;</code> gadget that ropr is <em>entirely unable to find</em> because they do not account for thunked returns.
+On the other hand, ROPgadget is actually able to find it, but its output makes it unclear that this is actually a ROP gadget rather than a JOP (Jump Oriented Programming) gadget.</p>
+
+<p>So, this is an instance of a false negative in the case of ropr, and a true positive that is difficult to visually parse in the case of ROPgadget which may lead to it being overlooked.</p>
+
+<p>I address this in kropr, as can be seen in the above output, by adding symbol names for thunked calls/jumps/returns.</p>
+
+<h2 id="false-positives-from-thunks">False Positives From Thunks</h2>
+
+<p>So, as we saw, thunks can introduce false negatives, but as it turns out they can also introduce false positives!</p>
+
+<p>Here is an example of two gadgets found by kropr:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>0xffffffff810c41ff: jmp 0xffffffff82230460 &lt;__x86_return_thunk&gt;;
+0xffffffff810c4200: pop rsp; ret 0x116;
+</code></pre></div></div>
+
+<p>Notice that these gadgets are 1 byte apart in memory, the second gadget actually starts with an unaligned instruction in the second byte of the jump instruction in the first gadget.
+This is kind of interesting, because normally <code class="language-plaintext highlighter-rouge">ret</code> is a single byte instruction (0xc3) meaning there cannot be an unaligned instruction inside of it, but as a result of these mitigations we now have these extra unaligned gadgets.</p>
+
+<p>So… that second gadget is real, right?</p>
+
+<p>Well, maybe?</p>
+
+<p>The thing is, <code class="language-plaintext highlighter-rouge">__x86_return_thunk</code> is, as was stated, a mitigation against the Retbleed vulnerability. Retbleed only impacted AMD’s Zen 1-2 CPUs, and this mitigation comes with a performance hit. To dodge that perf hit on unaffected CPUs, Kernel developers made it so these thunks are conditionally applied at runtime. The kernel will actually patch itself during startup depending on what CPU you are running it on.</p>
+
+<p>If you are running Zen 1-2 CPU affected by Retbleed, then it <em>is a real gadget</em>, it will be present at runtime.
+On other CPUs, which are not affected by Retbleed, these gadgets are false positives because the thunk will be patched to something else.</p>
+
+<p>As an example, lets check on my Zen 3 CPU running this kernel under Qemu with KVM enabled and the <code class="language-plaintext highlighter-rouge">--cpu host</code> argument being passed:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; x/i 0xffffffff810c41ff
+   0xffffffff810c41ff:	jmp    0xffffffff8250410b &lt;srso_alias_return_thunk&gt;
+gef&gt; x/i 0xffffffff810c41ff+1
+   0xffffffff810c4200:	(bad)
+</code></pre></div></div>
+
+<p>wat.</p>
+
+<p>So, Zen 3 is actually vulnerable to an <em>entirely different return instruction related speculative execution vulnerability</em> called <a href="https://comsec.ethz.ch/research/microarch/inception/">Speculative Return Stack Overflow</a> (SRSO, aka Inception). This vulnerability has its own thunk, <code class="language-plaintext highlighter-rouge">srso_alias_return_thunk</code> that gets patched over the <code class="language-plaintext highlighter-rouge">jmp __x86_return_thunk</code> instructions at boot if your CPU is vulnerable to SRSO.</p>
+
+<p>So, I guess its at this point that I wrap up the blog and admit that static ROP gadget discovery for the Linux kernel is impractical to do without some false negatives/positives or full knowledge of all of the CPU features and mitigations applicable to the target system.</p>
+
+<p>Or it would be, but actually I’m not done yapping quite yet !!!</p>
+
+<h2 id="thunk-patching">Thunk Patching</h2>
+
+<p>Just because it is impractical to account for all possible CPUs someone might be using, doesn’t mean it isn’t worth trying to make a <em>reliable</em> ROP gadget scanner!
+What I want is a happy medium default configuration between having low false negatives but eliminating as many false positives as possible.</p>
+
+<p>In kropr, to deal with the thunks problem I actually patch out all of the thunk calls/jump/returns by default, eliminating false positives from unaligned instructions inside thunks while having a nice side effect of making gadgets that contain thunks look more like you would expect them to.</p>
+
+<p>If you remember from earlier in the post I said to ignore the arguments in this command:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──(jmill@ubun)-[~]
+└─$ kropr --patch-rets=false --patch-retpolines=false ./ubuntu-vmlinux | grep 0xffffffff8191f11c
+0xffffffff8191f11c: pop rdi; jmp 0xffffffff82230460 &lt;__x86_return_thunk&gt;;
+</code></pre></div></div>
+
+<p>Well, here is the output without those arguments (though I needed to add <code class="language-plaintext highlighter-rouge">--nouniq</code> to prevent the gadget from being deduplicated with the other <code class="language-plaintext highlighter-rouge">pop rdi; ret</code> gadgets):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──(jmill@ubun)-[~]
+└─$ kropr --nouniq ./ubuntu-vmlinux | grep 0xffffffff8191f11c
+0xffffffff8191f11c: pop rdi; ret;
+</code></pre></div></div>
+
+<p>Kinda nice, eh? its not a thunk anymore, its just a normal return!</p>
+
+<p>And the same is true of retpoline thunks:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>┌──(jmill@ubun)-[~]
+└─$ kropr --patch-retpolines=false ./ubuntu-vmlinux | grep 0xffffffff810efe0b
+0xffffffff810efe0b: jmp 0xffffffff8222fda0 &lt;__x86_indirect_thunk_rdi&gt;;
+
+┌──(jmill@ubun)-[~]
+└─$ kropr --nouniq ./ubuntu-vmlinux | grep 0xffffffff810efe0b
+0xffffffff810efe0b: jmp rdi;
+</code></pre></div></div>
+
+<p>Its just a normal jump now!</p>
+
+<p>Additionaly, the case earlier with the unaligned instruction inside the ret thunk has also been addressed, because the return is back to being a single-byte instruction:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Before:
+0xffffffff810c41ff: jmp 0xffffffff82230460 &lt;__x86_return_thunk&gt;;
+0xffffffff810c4200: pop rsp; ret 0x116;
+
+After:
+0xffffffff810c41ff: ret;
+</code></pre></div></div>
+
+<p>So, what is this witchcraft? am I doing some cursed post-processing string replacement?</p>
+
+<p>Nope, but honestly that might have been easier!</p>
+
+<p>Instead, what I do in kropr is partially re-implent the kernel’s self-patching routine that happens when a CPU is not vulnerable to any vulnerabilities that necessitate thunked calls, jumps, or returns. The code that does this in Linux can be found <a href="https://github.com/torvalds/linux/blob/v6.16/arch/x86/kernel/alternative.c#L1049">here</a> for returns, and <a href="https://github.com/torvalds/linux/blob/v6.16/arch/x86/kernel/alternative.c#L945">here</a> for retpoline jumps/calls.</p>
+
+<p>In short, for returns it iterates over the entries in the <code class="language-plaintext highlighter-rouge">.return_sites</code> section of the kernel image, which contains offsets to all of the jump instructions to thunked returns. It then replaces the thunks with a <code class="language-plaintext highlighter-rouge">ret</code> instruction followed by four <code class="language-plaintext highlighter-rouge">int3</code> instructions to replace the entire jump instruction.</p>
+
+<p>For retpolines it iterates of the entries in the <code class="language-plaintext highlighter-rouge">.retpoline_sites</code> section of the kernel image, which contains offsets to all of the calls/jumps to retpoline thunks. For each instruction it will decode the instruction to determine which register the thunk corresponds to and whether it is a call or jump instruction. It then patches over the existing thunk instruction with the typical version (e.g. <code class="language-plaintext highlighter-rouge">call __x86_indirect_thunk_rdi</code> becomes <code class="language-plaintext highlighter-rouge">call rdi</code>) and then fills the remaining space after the previous instruction with nop instructions.</p>
+
+<p>There is some additional complexity in each of these routines that I’m glossing over which deals with various kernel configurations and other microarchitectural mitigations, but they aren’t all that important for the purposes of finding reliable gadgets.</p>
+
+<h1 id="the-alternatives-problem">The Alternatives Problem</h1>
+
+<p>As though the Thunk Problem wasn’t enough of a doozy, dealing with ‘alternatives’ is even more painful, I don’t even try to account for them at the moment in kropr!</p>
+
+<p>So, what is an ‘alternative’?</p>
+
+<p>The Linux kernel supports many different x86_64 processors that support many different hardware features, some of these features determine whether some instructions are valid on the processor or not. Newer generations of processors may introduce new instructions which are related to security features or even just provide a faster alternative to an existing instruction.</p>
+
+<p>Alternatives, in the context of the Linux kernel, account for this case where an instruction at some address should be some instruction by default but should be a different instruction if the CPU features allow it.</p>
+
+<p>For example, CPUs started to support SMAP (Supervisor Mode Access Prevention) in 2012, which introduced two instructions – <code class="language-plaintext highlighter-rouge">stac</code> and <code class="language-plaintext highlighter-rouge">clac</code>. The <code class="language-plaintext highlighter-rouge">stac</code> instruction sets a bit in the <code class="language-plaintext highlighter-rouge">eflags</code> register which temporarily disables the enforcement of SMAP, and the <code class="language-plaintext highlighter-rouge">clac</code> instruction clears that bit reenabling the enforcement of SMAP.
+If you’ve ever wondered how the function <code class="language-plaintext highlighter-rouge">copy_from_user</code> in the kernel works when SMAP is enabled, this is how. They do <code class="language-plaintext highlighter-rouge">stac</code> -&gt; <code class="language-plaintext highlighter-rouge">memory read</code> -&gt; <code class="language-plaintext highlighter-rouge">clac</code>, temporarily bypassing SMAP enforcement for the access of userspace memory.</p>
+
+<p>On a CPU that doesn’t support the SMAP feature, these instructions would raise an Invalid Opcode exception. This means that the kernel needs to only use the <code class="language-plaintext highlighter-rouge">stac</code> and <code class="language-plaintext highlighter-rouge">clac</code> instructions in <code class="language-plaintext highlighter-rouge">copy_from_user</code> if the SMAP feature is actually supported. Alternatives are what make this possible.</p>
+
+<p>There is section of the kernel image for alternatives called <code class="language-plaintext highlighter-rouge">.altinstructions</code> which specifies</p>
+<ul>
+  <li>A location for an instruction that should be conditionally replaced</li>
+  <li>An offset into another section called <code class="language-plaintext highlighter-rouge">.altinstr_replacement</code> which contains the alternate instruction’s code</li>
+  <li>A ‘cpuid’ value representing a CPU feature related to this alternative</li>
+  <li>A ‘flags’ value used to specify additonal information about when the alternative should be applied</li>
+  <li>The length of the original instruction</li>
+  <li>The length of the replacement instruction</li>
+</ul>
+
+<p>The actual struct for these entries in the <code class="language-plaintext highlighter-rouge">.altinstructions</code> section that is used by the kernel can be found <a href="https://github.com/torvalds/linux/blob/v6.16/arch/x86/include/asm/alternative.h#L68-L82">here</a>.</p>
+
+<p>Since these instructions can be replaced during boot, they serve as a source of both false positives and false negatives. An instruction in a gadget might be replaced at runtime, creating a false positive, and a useful instruction could only be present at runtime creating a false negative.</p>
+
+<p>When doing static ROP gadget scanning there is no way to know what CPU the user is targeting without their input. The data from the host’s CPU could be enumerated via <code class="language-plaintext highlighter-rouge">cpuid</code> but that will be different than the set of CPU features supported in a Qemu VM, even if using KVM and passing the <code class="language-plaintext highlighter-rouge">--cpu host</code>! If the VM specifies <code class="language-plaintext highlighter-rouge">--cpu kvm64</code> or <code class="language-plaintext highlighter-rouge">--cpu qemu64</code> the set of features will be even less similar to that of the host.</p>
+
+<p>I think there are a few options to address this problem:</p>
+<ul>
+  <li>Allow the user to provide a CPUID dump or <code class="language-plaintext highlighter-rouge">/proc/cpuinfo</code> content from the target kernel</li>
+  <li>Allow the user to specify a CPU model and have a database of what features common CPUs support</li>
+  <li>Provide an option that filters out any gadgets that overlap with any of the instructions in <code class="language-plaintext highlighter-rouge">.altinstructions</code> to remove any false positives</li>
+  <li>Provide a reasonable default configuration of alternatives to apply, e.g., I think we can assume that most CPUs support SMEP/SMAP related instructions these days</li>
+</ul>
+
+<p>While I do want to support some of these in kropr eventually, none of these options are currently implemented. I don’t think alternatives have a major impact on the number of false positives/negatives, at least not anywhere near as bad as the other problems I discussed. All of these replacements are related to the CPU architecture, which means there aren’t <em>that</em> many of them and the replacements <em>mostly</em> add instructions that are not typically used in ROP chains.</p>
+
+<h1 id="the-conclusion-problem">The Conclusion Problem</h1>
+
+<p>Thanks for reading, that’s all I’ve got :3</p>
+
+<p>This whole rabbit hole of trying to improve Linux kernel ROP gadget discovery was really fun to go down, and led to the creation of what I think is a pretty useful tool!</p>
+
+<p>At this point kropr has existed as a fork for a bit over a year and I’ve been using it or kernel pwn since its creation.
+Despite never really advertising it outside of my lab its actually gained a decent amount of attention, which is always nice to see.
+Anyways, if you do any Linux kernel pwn you should check it out and open an issue on the repo if you run into any problems while using it!</p>
+
+<p>Github Link: <a href="https://github.com/zolutal/kropr">https://github.com/zolutal/kropr</a></p>
+
+        
+      </section>
+
+      <footer class="page__meta">
+        
+        
+  
+
+
+  
+
+  <p class="page__taxonomy">
+    <strong><i class="fas fa-fw fa-tags" aria-hidden="true"></i> Tags: </strong>
+    <span itemprop="keywords">
+    
+      <a href="/tags/#exploitation" class="page__taxonomy-item" rel="tag">Exploitation</a><span class="sep">, </span>
+    
+      <a href="/tags/#linux" class="page__taxonomy-item" rel="tag">Linux</a>
+    
+    </span>
+  </p>
+
+
+
+
+        
+
+  <p class="page__date"><strong><i class="fas fa-fw fa-calendar-alt" aria-hidden="true"></i> Updated:</strong> <time datetime="2025-09-03T00:00:00+00:00">September 3, 2025</time></p>
+
+
+      </footer>
+
+      
+
+      
+  <nav class="pagination">
+    
+      <a href="/corctf-trojan-turtles/" class="pagination--pager" title="corCTF 2024: trojan-turtles writeup
+">Previous</a>
+    
+    
+      <a href="#" class="pagination--pager disabled">Next</a>
+    
+  </nav>
+
+    </div>
+
+    
+  </article>
+
+  
+  
+    <div class="page__related">
+      <h4 class="page__related-title">You may also enjoy</h4>
+      <div class="grid__wrapper">
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/corctf-trojan-turtles/" rel="permalink">corCTF 2024: trojan-turtles writeup
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2024-07-28T00:00:00+00:00">July 28, 2024</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          19 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">This year I played corCTF with Shellphish, and we did pretty well – placing 6th!
+I worked on two challenges: ‘trojan-turtles’ and ‘its-just-a-dos-bug-bro’, i...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/aslrnt/" rel="permalink">ASLRn’t: How memory alignment broke library ASLR
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2024-01-08T00:00:00+00:00">January 8, 2024</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          8 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">As it turns out, on recent Ubuntu, Arch, Fedora, and likely other distro’s releases, with kernel versions &gt;=5.18, library ASLR is literally broken for 32-...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/understanding-paging/" rel="permalink">Understanding x86_64 Paging
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-12-27T00:00:00+00:00">December 27, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          22 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I’ve spent quite a lot of time messing with x86_64 page tables, understanding address translation is not easy and when I started learning about it I felt lik...</p>
+  </article>
+</div>
+
+        
+          
+
+
+
+<div class="grid__item">
+  <article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+    
+    <h2 class="archive__item-title no_toc" itemprop="headline">
+      
+        <a href="/corctf-sysruption/" rel="permalink">corCTF 2023: sysruption writeup
+</a>
+      
+    </h2>
+    
+
+  <p class="page__meta">
+    
+      
+      <span class="page__meta-date">
+        <i class="far fa-fw fa-calendar-alt" aria-hidden="true"></i>
+        
+        <time datetime="2023-07-30T00:00:00+00:00">July 30, 2023</time>
+      </span>
+    
+
+    <span class="page__meta-sep"></span>
+
+    
+      
+      
+
+      <span class="page__meta-readtime">
+        <i class="far fa-fw fa-clock" aria-hidden="true"></i>
+        
+          25 minute read
+        
+      </span>
+    
+  </p>
+
+
+    <p class="archive__item-excerpt" itemprop="description">I played corCTF this weekend and managed to solve two pretty tough challenges. This will be a writeup for the first of those two, sysruption, which I managed...</p>
+  </article>
+</div>
+
+        
+      </div>
+    </div>
+  
+  
+</div>
+
+    </div>
+
+    
+
+    <div id="footer" class="page__footer">
+      <footer>
+        <!-- start custom footer snippets -->
+
+<!-- end custom footer snippets -->
+        <div class="page__footer-follow">
+  <ul class="social-icons">
+    
+      <li><strong>Follow:</strong></li>
+    
+
+    
+      
+        
+          <li><a href="https://bsky.app/profile/zolutal.bsky.social" rel="nofollow noopener noreferrer"><i class="fas fa-link" aria-hidden="true"></i> BlueSky</a></li>
+        
+      
+        
+          <li><a href="https://twitter.com/please-stop-using-fucking-twitter" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-twitter-square" aria-hidden="true"></i> Twitter</a></li>
+        
+      
+        
+      
+        
+          <li><a href="https://github.com/zolutal" rel="nofollow noopener noreferrer"><i class="fab fa-fw fa-github" aria-hidden="true"></i> GitHub</a></li>
+        
+      
+        
+      
+        
+      
+        
+      
+    
+
+    
+  </ul>
+</div>
+
+<div class="page__footer-copyright">&copy; 2025 zolutal. Powered by <a href="https://jekyllrb.com" rel="nofollow">Jekyll</a> &amp; <a href="https://mademistakes.com/work/minimal-mistakes-jekyll-theme/" rel="nofollow">Minimal Mistakes</a>.</div>
+
+      </footer>
+    </div>
+
+    
+  <script src="/assets/js/main.min.js"></script>
+
+
+
+
+
+
+
+
+
+
+  </body>
+</html>

@@ -28,4 +28,10 @@ var store = [{
         "tags": ["Exploitation","Sidechannels","x86_64","Architecture","Linux","CTF Writeup"],
         "url": "/corctf-trojan-turtles/",
         "teaser": null
+      },{
+        "title": "The Joys of Linux Kernel ROP Gadget Scanning",
+        "excerpt":"Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run ROPgadget --binary vmlinux on it! In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due...","categories": [],
+        "tags": ["Exploitation","Linux"],
+        "url": "/joys-of-kernel-rop/",
+        "teaser": null
       }]
