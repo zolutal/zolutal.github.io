@@ -510,7 +510,7 @@ What I want is a happy medium default configuration between having low false neg
 
 <p>Its just a normal jump now!</p>
 
-<p>Additionaly, the case earlier with the unaligned instruction inside the ret thunk has also been addressed, because the return is back to being a single-byte instruction:</p>
+<p>Additionally, the case earlier with the unaligned instruction inside the ret thunk has also been addressed, because the return is back to being a single-byte instruction:</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Before:
 0xffffffff810c41ff: jmp 0xffffffff82230460 &lt;__x86_return_thunk&gt;;
@@ -568,7 +568,7 @@ If you’ve ever wondered how the function <code class="language-plaintext highl
   <li>Allow the user to provide a CPUID dump or <code class="language-plaintext highlighter-rouge">/proc/cpuinfo</code> content from the target kernel</li>
   <li>Allow the user to specify a CPU model and have a database of what features common CPUs support</li>
   <li>Provide an option that filters out any gadgets that overlap with any of the instructions in <code class="language-plaintext highlighter-rouge">.altinstructions</code> to remove any false positives</li>
-  <li>Provide a reasonable default configuration of alternatives to apply, e.g., I think we can assume that most CPUs support SMEP/SMAP related instructions these days</li>
+  <li>Provide a reasonable default configuration of alternatives to apply, e.g., I think we can assume that most CPUs support SMAP related instructions these days</li>
 </ul>
 
 <p>While I do want to support some of these in kropr eventually, none of these options are currently implemented. I don’t think alternatives have a major impact on the number of false positives/negatives, at least not anywhere near as bad as the other problems I discussed. All of these replacements are related to the CPU architecture, which means there aren’t <em>that</em> many of them and the replacements <em>mostly</em> add instructions that are not typically used in ROP chains.</p>
