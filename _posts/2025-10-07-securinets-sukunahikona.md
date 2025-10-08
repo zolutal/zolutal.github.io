@@ -8,7 +8,7 @@ tags:
   - Browser
 ---
 
-I played Securinets Quals this weekend with Shellphish, we ended up placing 7th and qualifying for finals! When I logged on to play all of the released pwn was already solved or close to solved by @vy except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go and I managed to solve it. This is my writeup for that challenge :)
+I played Securinets Quals this weekend with Shellphish; we ended up placing 7th, qualifying us for finals! When I logged on to play, all of the released pwn was already solved or close to solved by @vy, except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go, and I managed to solve it. This is my writeup for that challenge :)
 
 Here is the challenge description:
 
@@ -38,7 +38,7 @@ server/server.py
 server/snapshot_blob.bin
 ```
 
-The most interesting things here is the "d8" binary which is used to run a debug version of v8 called "d8" that lets us access a JavaScript REPL and run JS files. This d8 binary is what the patch file provided with the challenge is applied to and what we need to exploit.
+The most interesting thing here is the "d8" binary which is used to run a debug version of v8 called "d8" that lets us access a JavaScript REPL and run JS files. This d8 binary is what the patch file provided with the challenge is applied to and what we need to exploit.
 
 The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it the first change we see is this:
 
