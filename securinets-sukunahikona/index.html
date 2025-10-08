@@ -358,7 +358,7 @@ server/snapshot_blob.bin
 
 <p>The most interesting thing here is the “d8” binary which is used to run a debug version of v8 called “d8” that lets us access a JavaScript REPL and run JS files. This d8 binary is what the patch file provided with the challenge is applied to and what we need to exploit.</p>
 
-<p>The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it the first change we see is this:</p>
+<p>The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it, the first change we see is this:</p>
 
 <div class="language-diff highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gh">diff --git a/src/builtins/builtins-array.cc b/src/builtins/builtins-array.cc
 index ea45a7ada6b..2552c286b60 100644
@@ -409,7 +409,7 @@ index ea45a7ada6b..2552c286b60 100644
 +}
 </span></code></pre></div></div>
 
-<p>What this patch does is add an builtin to arrays called “shrink” that takes one argument and resizes the array.
+<p>What this patch does is add a builtin to arrays called “shrink” that takes one argument and resizes the array.
 So you can do something like this:</p>
 
 <div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">];</span>
@@ -656,7 +656,7 @@ after 19: 0x7ff8000000000000
 undefined
 d8&gt;
 </code></pre></div></div>
-<p>So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to <code class="language-plaintext highlighter-rouge">the\_hole\_value</code>, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.</p>
+<p>So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to <code class="language-plaintext highlighter-rouge">the_hole_value</code>, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.</p>
 
 <p>I have no idea how the allocator works in v8 so I just tried allocating a ton of arrays to see if eventually it would get reclaimed by other data:</p>
 

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2025-10-08T06:00:43+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Jennifer Miller</name></author><entry><title type="html">Securinets Quals 2025: Sukunahikona (v8 Exploitation)</title><link href="https://zolutal.github.io/securinets-sukunahikona/" rel="alternate" type="text/html" title="Securinets Quals 2025: Sukunahikona (v8 Exploitation)" /><published>2025-10-07T00:00:00+00:00</published><updated>2025-10-07T00:00:00+00:00</updated><id>https://zolutal.github.io/securinets-sukunahikona</id><content type="html" xml:base="https://zolutal.github.io/securinets-sukunahikona/"><![CDATA[<p>I played Securinets Quals this weekend with Shellphish; we ended up placing 7th, qualifying us for finals! When I logged on to play, all of the released pwn was already solved or close to solved by @vy, except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go, and I managed to solve it. This is my writeup for that challenge :)</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2025-10-08T06:22:44+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Jennifer Miller</name></author><entry><title type="html">Securinets Quals 2025: Sukunahikona (v8 Exploitation)</title><link href="https://zolutal.github.io/securinets-sukunahikona/" rel="alternate" type="text/html" title="Securinets Quals 2025: Sukunahikona (v8 Exploitation)" /><published>2025-10-07T00:00:00+00:00</published><updated>2025-10-07T00:00:00+00:00</updated><id>https://zolutal.github.io/securinets-sukunahikona</id><content type="html" xml:base="https://zolutal.github.io/securinets-sukunahikona/"><![CDATA[<p>I played Securinets Quals this weekend with Shellphish; we ended up placing 7th, qualifying us for finals! When I logged on to play, all of the released pwn was already solved or close to solved by @vy, except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go, and I managed to solve it. This is my writeup for that challenge :)</p>
 
 <p>Here is the challenge description:</p>
 
@@ -29,7 +29,7 @@ server/snapshot_blob.bin
 
 <p>The most interesting thing here is the “d8” binary which is used to run a debug version of v8 called “d8” that lets us access a JavaScript REPL and run JS files. This d8 binary is what the patch file provided with the challenge is applied to and what we need to exploit.</p>
 
-<p>The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it the first change we see is this:</p>
+<p>The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it, the first change we see is this:</p>
 
 <div class="language-diff highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gh">diff --git a/src/builtins/builtins-array.cc b/src/builtins/builtins-array.cc
 index ea45a7ada6b..2552c286b60 100644
@@ -80,7 +80,7 @@ index ea45a7ada6b..2552c286b60 100644
 +}
 </span></code></pre></div></div>
 
-<p>What this patch does is add an builtin to arrays called “shrink” that takes one argument and resizes the array.
+<p>What this patch does is add a builtin to arrays called “shrink” that takes one argument and resizes the array.
 So you can do something like this:</p>
 
 <div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">];</span>
@@ -327,7 +327,7 @@ after 19: 0x7ff8000000000000
 undefined
 d8&gt;
 </code></pre></div></div>
-<p>So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to <code class="language-plaintext highlighter-rouge">the\_hole\_value</code>, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.</p>
+<p>So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to <code class="language-plaintext highlighter-rouge">the_hole_value</code>, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.</p>
 
 <p>I have no idea how the allocator works in v8 so I just tried allocating a ton of arrays to see if eventually it would get reclaimed by other data:</p>
 
