@@ -40,7 +40,7 @@ server/snapshot_blob.bin
 
 The most interesting thing here is the "d8" binary which is used to run a debug version of v8 called "d8" that lets us access a JavaScript REPL and run JS files. This d8 binary is what the patch file provided with the challenge is applied to and what we need to exploit.
 
-The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it the first change we see is this:
+The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it, the first change we see is this:
 
 ```diff
 diff --git a/src/builtins/builtins-array.cc b/src/builtins/builtins-array.cc
@@ -92,7 +92,7 @@ index ea45a7ada6b..2552c286b60 100644
 +}
 ```
 
-What this patch does is add an builtin to arrays called "shrink" that takes one argument and resizes the array.
+What this patch does is add a builtin to arrays called "shrink" that takes one argument and resizes the array.
 So you can do something like this:
 
 ```js
@@ -351,7 +351,7 @@ after 19: 0x7ff8000000000000
 undefined
 d8>
 ```
-So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to `the\_hole\_value`, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.
+So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to `the_hole_value`, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.
 
 I have no idea how the allocator works in v8 so I just tried allocating a ton of arrays to see if eventually it would get reclaimed by other data:
 
