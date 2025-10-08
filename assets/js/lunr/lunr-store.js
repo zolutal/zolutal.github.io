@@ -36,7 +36,7 @@ var store = [{
         "teaser": null
       },{
         "title": "Securinets Quals 2025: Sukunahikona (v8 Exploitation)",
-        "excerpt":"I played Securinets Quals this weekend with Shellphish, we ended up placing 7th and qualifying for finals! When I logged on to play all of the released pwn was already solved or close to solved by @vy except for the v8 challenge. Despite having never touched v8 pwn before, I...","categories": [],
+        "excerpt":"I played Securinets Quals this weekend with Shellphish; we ended up placing 7th, qualifying us for finals! When I logged on to play, all of the released pwn was already solved or close to solved by @vy, except for the v8 challenge. Despite having never touched v8 pwn before, I...","categories": [],
         "tags": ["Exploitation","Browser"],
         "url": "/securinets-sukunahikona/",
         "teaser": null
