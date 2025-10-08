@@ -270,7 +270,9 @@ DebugPrint: 0x4ec00042bb9: [JSArray]
  ...
  ```
 
-If I then try and access something past the end of the elements list, I get a crash:
+Notice that the length is 1999, while the number of elements in the JSArray is only 18.
+
+If I try and access one index past the end of the elements list, I get a crash:
 ```js
 d8> arr[18]
 abort: Unexpected instance type encountered
