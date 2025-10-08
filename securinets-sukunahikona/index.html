@@ -578,7 +578,9 @@ So you can do something like this:</p>
  <span class="p">...</span>
 </code></pre></div></div>
 
-<p>If I then try and access something past the end of the elements list, I get a crash:</p>
+<p>Notice that the length is 1999, while the number of elements in the JSArray is only 18.</p>
+
+<p>If I try and access one index past the end of the elements list, I get a crash:</p>
 <div class="language-js highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">d8</span><span class="o">&gt;</span> <span class="nx">arr</span><span class="p">[</span><span class="mi">18</span><span class="p">]</span>
 <span class="nx">abort</span><span class="p">:</span> <span class="nx">Unexpected</span> <span class="nx">instance</span> <span class="nx">type</span> <span class="nx">encountered</span>
 
