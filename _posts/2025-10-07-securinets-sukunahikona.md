@@ -163,7 +163,7 @@ At this point we were thinking it might be possible that the garbage collector c
 
 # Searching for Clues
 
-I was pretty lost on how else this might be vulnerable at so I went searching for other writeups to see if I could find anything and stumbled across a writeup for a similar challenge: [https://lyra.horse/blog/2024/05/exploiting-v8-at-openecsc/](https://lyra.horse/blog/2024/05/exploiting-v8-at-openecsc/).
+I was pretty lost on how this code could be vulnerable... so I went searching for other writeups to see if I could find anything, and stumbled across a writeup for a similar challenge: [https://lyra.horse/blog/2024/05/exploiting-v8-at-openecsc/](https://lyra.horse/blog/2024/05/exploiting-v8-at-openecsc/).
 
 Here is the patch for that challenge:
 
