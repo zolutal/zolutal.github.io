@@ -69,7 +69,7 @@ So I started wondering, is there another way of getting around the `CR Pinning` 
 # Mind The Gap
 
 The CR Pinning mitigation is... honestly kind of a strange one.
-You are actually able to overwrite cr4 but then it sets it back to the original value several instructions later.
+You are actually able to overwrite cr4 but then it sets it to a fixed up value several instructions later.
 Though, I don't think there is a better way to implement the mitigation, if you have a `mov cr4, r..` instruction anywhere in the kernel then architecturally you can't really stop someone from hijacking control flow to it (CFI aside, I suppose).
 So doing this fixup after the write occurs is about the best that can be done.
 
