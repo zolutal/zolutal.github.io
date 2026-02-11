@@ -386,7 +386,7 @@ Which is pretty good, but the requirement on the flags register for taking the c
 <h1 id="mind-the-gap">Mind The Gap</h1>
 
 <p>The CR Pinning mitigation is… honestly kind of a strange one.
-You are actually able to overwrite cr4 but then it sets it back to the original value several instructions later.
+You are actually able to overwrite cr4 but then it sets it to a fixed up value several instructions later.
 Though, I don’t think there is a better way to implement the mitigation, if you have a <code class="language-plaintext highlighter-rouge">mov cr4, r..</code> instruction anywhere in the kernel then architecturally you can’t really stop someone from hijacking control flow to it (CFI aside, I suppose).
 So doing this fixup after the write occurs is about the best that can be done.</p>
 
