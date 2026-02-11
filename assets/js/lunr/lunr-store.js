@@ -40,4 +40,10 @@ var store = [{
         "tags": ["Exploitation","Browser"],
         "url": "/securinets-sukunahikona/",
         "teaser": null
+      },{
+        "title": "Revisiting Two-Shot Kernel Shellcode Execution From Control Flow Hijacking",
+        "excerpt":"One of the inspirations for my work on the System Register Hijacking paper was this blog post by Project Zero written by Andrey Konovalov. In the blog post he describes a method of bypassing SMEP/SMAP by using the native_write_cr4 function of the kernel, which at the time effectively did mov...","categories": [],
+        "tags": ["Exploitation","Linux"],
+        "url": "/two-shot-kernel-shellcode/",
+        "teaser": null
       }]

